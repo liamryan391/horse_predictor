@@ -1,13 +1,49 @@
 # Horse Racing Software + App
 
-This project includes a Streamlit app that can:
+This project now has **two parts**:
 
-- Read **past race data** and **past bet history data** from CSV.
-- Analyze important details such as jockey, owner, trainer, odds, and horse stats.
-- Train a machine-learning model from previous data.
-- Score current races and rank horses by estimated win probability.
+1. **Data Pipeline API Ingestion** (`data_pipeline.py`) to fetch horse info and build datasets.
+2. **Prediction App** (`horse_racing_app.py`) to train on past races and score current races.
 
-## Quick start
+## Should SQL be used?
+
+Yes — SQL is a good fit for this use case.
+
+- It keeps race/bet/jockey/owner tables structured and queryable.
+- You can track ingestion timestamps and history cleanly.
+- It scales better than only CSV files when data grows.
+
+This project includes SQLite support in `data_pipeline.py` and creates:
+
+- `races_historical` table
+- `races_current` table
+
+You can later switch to Postgres/MySQL with the same table design.
+
+## API ingestion setup
+
+Set API credentials (example):
+
+```bash
+export HORSE_API_BASE_URL="https://api.your-provider.com/v1"
+export HORSE_API_KEY="your_api_key"
+```
+
+Run ingestion:
+
+```bash
+python data_pipeline.py --days-ahead 7
+```
+
+This will:
+
+- Call `/historical-races`
+- Call `/current-races?days_ahead=7`
+- Create `sample_historical_data.csv`
+- Create `sample_current_races.csv`
+- Load both datasets into `horse_racing.db`
+
+## Prediction app setup
 
 ```bash
 python -m venv .venv
@@ -16,10 +52,7 @@ pip install -r requirements.txt
 streamlit run horse_racing_app.py
 ```
 
-Then upload:
-
-- `sample_historical_data.csv` (or your own historical file)
-- `sample_current_races.csv` (or your own upcoming race card)
+Then upload the generated CSVs (or your own files).
 
 ## Required CSV columns
 
@@ -32,7 +65,7 @@ Then upload:
 - `owner`
 - `trainer`
 - `odds`
-- `finishing_position` (historical data should contain true result; current race card can use `0` as placeholder)
+- `finishing_position`
 
 ## Optional columns
 
@@ -49,4 +82,4 @@ Then upload:
 ## Notes
 
 - This is decision-support software, not guaranteed betting advice.
-- Improve model quality by adding more historical races, sectional times, and richer features.
+- For production: add API retries, schema validation, and automated model evaluation.
