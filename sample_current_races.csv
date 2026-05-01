@@ -1,0 +1,4 @@
+race_date,track,distance,surface,horse,jockey,owner,trainer,odds,finishing_position,horse_age,horse_weight,draw,speed_rating,class_rating,days_since_last_run,past_bets_count,past_bets_profit,weather
+2026-05-05,York,1400,Dirt,Golden Arrow,C. Smith,Green Acres,P. Miller,3.4,0,3,498,5,96,91,16,13,220,Sunny
+2026-05-05,York,1400,Dirt,Storm Lantern,A. Lee,Red Stables,D. White,4.8,0,4,512,8,91,88,20,12,115,Sunny
+2026-05-05,York,1400,Dirt,Marble Sky,F. Costa,Blue Farm,E. Stone,6.5,0,5,506,2,87,83,28,9,-15,Sunny
