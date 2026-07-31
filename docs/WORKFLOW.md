@@ -20,7 +20,7 @@
 Run backend syntax checks:
 
 ```powershell
-.\.venv\Scripts\python.exe -m py_compile api.py data_pipeline.py horse_racing_app.py prediction_model.py racing_storage.py
+.\.venv\Scripts\python.exe -m py_compile settings.py api.py data_pipeline.py horse_racing_app.py prediction_model.py racing_storage.py
 ```
 
 Build the frontend:

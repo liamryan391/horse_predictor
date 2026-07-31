@@ -1,19 +1,16 @@
 from __future__ import annotations
 
 import argparse
-import os
 import time
 from dataclasses import dataclass
 from datetime import date, timedelta
-from pathlib import Path
 from typing import Iterable, List, Optional
 
 import pandas as pd
 import requests
 
 from racing_storage import RACE_COLUMNS, TABLES, seed_database_from_samples, write_races
-
-BASE_DIR = Path(__file__).resolve().parent
+from settings import get_settings
 
 
 @dataclass
@@ -26,26 +23,27 @@ class APIConfig:
 
 
 def parse_args() -> argparse.Namespace:
+    settings = get_settings()
     parser = argparse.ArgumentParser(
         description="Fetch horse racing data, store it in SQL, and optionally export CSV snapshots."
     )
     parser.add_argument(
         "--provider",
         choices=["sample", "generic", "theracingapi", "ourhub"],
-        default=os.getenv("HORSE_API_PROVIDER", "sample"),
+        default=settings.horse_api_provider,
         help="sample keeps the app usable without credentials; generic expects JSON matching the app schema.",
     )
-    parser.add_argument("--base-url", default=os.getenv("HORSE_API_BASE_URL", ""))
-    parser.add_argument("--api-key", default=os.getenv("HORSE_API_KEY", ""))
-    parser.add_argument("--username", default=os.getenv("RACING_API_USERNAME", ""))
-    parser.add_argument("--password", default=os.getenv("RACING_API_PASSWORD", ""))
+    parser.add_argument("--base-url", default=settings.horse_api_base_url)
+    parser.add_argument("--api-key", default=settings.horse_api_key)
+    parser.add_argument("--username", default=settings.racing_api_username)
+    parser.add_argument("--password", default=settings.racing_api_password)
     parser.add_argument(
         "--database-url",
-        default=os.getenv("DATABASE_URL") or os.getenv("HORSE_DB_PATH") or str(BASE_DIR / "horse_racing.db"),
+        default=settings.database_url,
         help="SQLAlchemy database URL. Use mysql+pymysql://user:pass@host:3306/horse_predictor for MySQL.",
     )
-    parser.add_argument("--historical-out", default=str(BASE_DIR / "sample_historical_data.csv"))
-    parser.add_argument("--current-out", default=str(BASE_DIR / "sample_current_races.csv"))
+    parser.add_argument("--historical-out", default=str(settings.sample_historical_csv))
+    parser.add_argument("--current-out", default=str(settings.sample_current_csv))
     parser.add_argument("--days-ahead", type=int, default=7)
     parser.add_argument("--history-start", default=(date.today() - timedelta(days=365)).isoformat())
     parser.add_argument("--history-end", default=date.today().isoformat())

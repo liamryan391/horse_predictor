@@ -3,7 +3,6 @@ from __future__ import annotations
 import io
 import os
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Dict, List
 
 import numpy as np
@@ -23,9 +22,10 @@ from racing_storage import (
     seed_database_from_samples,
     table_counts,
 )
+from settings import get_settings
 
-BASE_DIR = Path(__file__).resolve().parent
-DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("HORSE_DB_PATH") or str(BASE_DIR / "horse_racing.db")
+SETTINGS = get_settings()
+DATABASE_URL = SETTINGS.database_url
 
 REQUIRED_HISTORICAL_COLUMNS = [
     "race_date",
@@ -277,8 +277,8 @@ def apply_styles() -> None:
 def ensure_seed_data(database_url: str) -> None:
     counts = table_counts(database_url)
     if counts["historical"] == 0 or counts["current"] == 0:
-        sample_history = BASE_DIR / "sample_historical_data.csv"
-        sample_current = BASE_DIR / "sample_current_races.csv"
+        sample_history = SETTINGS.sample_historical_csv
+        sample_current = SETTINGS.sample_current_csv
         if sample_history.exists() and sample_current.exists():
             seed_database_from_samples(database_url, sample_history, sample_current)
 

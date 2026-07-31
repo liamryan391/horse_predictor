@@ -55,6 +55,8 @@ Recommended target:
 - Pytest backend tests.
 - Vitest and React Testing Library frontend tests.
 
+Current inspection: the stack is documented and the repo now has FastAPI, SQLAlchemy, React/TypeScript, MySQL-ready config, SQLite fallback, and Streamlit diagnostics. Alembic and test frameworks remain Phase 2/7 work.
+
 ### 1.2 Local Environment
 
 - Add Windows PowerShell setup instructions.
@@ -63,12 +65,16 @@ Recommended target:
 - Add one-command local startup where practical.
 - Add Docker Compose for backend, frontend, and MySQL.
 
+Current inspection: `docs/SETUP.md`, `scripts/start-dev.ps1`, `scripts/start-dev.sh`, and `docker-compose.yml` cover these paths.
+
 ### 1.3 Configuration
 
 - Centralize environment-variable handling.
 - Validate required production settings at startup.
 - Separate development, test, staging, and production configurations.
 - Ensure secrets are never committed.
+
+Current inspection: `settings.py` centralizes environment reads, loads `.env`, validates staging/production runtime settings, and keeps secrets out of committed examples.
 
 ## Phase 2: SQL Data Platform
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict
@@ -24,6 +23,8 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.engine import Engine
+
+from settings import BASE_DIR, resolve_database_url
 
 RACE_COLUMNS = [
     "race_date",
@@ -63,18 +64,10 @@ NUMERIC_COLUMNS = [
 
 TABLES = {"historical": "races_historical", "current": "races_current"}
 VALID_TABLES = set(TABLES.values())
-BASE_DIR = Path(__file__).resolve().parent
 
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(microsecond=0)
-
-
-def resolve_database_url(database_url: str | Path | None = None) -> str:
-    raw_url = str(database_url or os.getenv("DATABASE_URL") or os.getenv("HORSE_DB_PATH") or BASE_DIR / "horse_racing.db")
-    if "://" in raw_url:
-        return raw_url
-    return f"sqlite:///{Path(raw_url).as_posix()}"
 
 
 def get_engine(database_url: str | Path | None = None) -> Engine:

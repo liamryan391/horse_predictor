@@ -27,8 +27,15 @@ The repo includes `.vscode/settings.json` so VS Code should select `.venv\Script
 
 ```powershell
 cd C:\Users\liamr\Documents\Codex\2026-05-01\could-you-open-my-github-repo\horse_predictor
+Copy-Item .env.example .env
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+One-command local startup:
+
+```powershell
+.\scripts\start-dev.ps1
 ```
 
 Seed the database:
@@ -122,6 +129,7 @@ Hourly worker:
 
 ## Improvements to do next
 
+- Move schema management to Alembic migrations.
 - Move scheduled ingestion into a proper background worker such as APScheduler, Celery, or a hosted cron job.
 - Add data validation before database writes, especially for provider-specific API payloads.
 - Store trained model metrics and backtests in SQL instead of retraining only on request.

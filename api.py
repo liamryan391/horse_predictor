@@ -1,35 +1,30 @@
 from __future__ import annotations
 
 import math
-import os
-from pathlib import Path
 from typing import Any
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.engine.url import make_url
 
 from prediction_model import build_feature_table, score_current_races, summarize_entities, train_model
 from racing_storage import (
     TABLES,
     ingestion_status,
     read_races,
-    resolve_database_url,
     seed_database_from_samples,
     table_counts,
 )
+from settings import get_settings
 
-BASE_DIR = Path(__file__).resolve().parent
-DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("HORSE_DB_PATH") or str(BASE_DIR / "horse_racing.db")
+SETTINGS = get_settings()
+SETTINGS.validate_runtime()
+DATABASE_URL = SETTINGS.database_url
 
 app = FastAPI(title="Horse Predictor API", version="0.2.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=list(SETTINGS.backend_cors_origins),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -39,8 +34,8 @@ app.add_middleware(
 def ensure_seed_data() -> None:
     counts = table_counts(DATABASE_URL)
     if counts["historical"] == 0 or counts["current"] == 0:
-        sample_history = BASE_DIR / "sample_historical_data.csv"
-        sample_current = BASE_DIR / "sample_current_races.csv"
+        sample_history = SETTINGS.sample_historical_csv
+        sample_current = SETTINGS.sample_current_csv
         if sample_history.exists() and sample_current.exists():
             seed_database_from_samples(DATABASE_URL, sample_history, sample_current)
 
@@ -60,16 +55,7 @@ def records(df: pd.DataFrame) -> list[dict[str, Any]]:
 
 
 def database_summary() -> dict[str, Any]:
-    parsed = make_url(resolve_database_url(DATABASE_URL))
-    database_name = parsed.database
-    if parsed.get_backend_name() == "sqlite" and database_name:
-        database_name = Path(database_name).name
-    return {
-        "environment": os.getenv("APP_ENV", "development"),
-        "engine": parsed.get_backend_name(),
-        "driver": parsed.drivername,
-        "database": database_name,
-    }
+    return SETTINGS.database_summary()
 
 
 def load_model_bundle() -> tuple[pd.DataFrame, pd.DataFrame, Any, pd.DataFrame]:

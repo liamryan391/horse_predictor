@@ -39,8 +39,15 @@ That system Python does not have the repo dependencies installed. See [DEVNOTES.
 ## Setup
 
 ```powershell
+Copy-Item .env.example .env
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+For a one-command Windows startup:
+
+```powershell
+.\scripts\start-dev.ps1
 ```
 
 Seed the local database:
@@ -75,6 +82,12 @@ Open:
 
 ```text
 http://127.0.0.1:5173
+```
+
+Docker Compose is also available for running FastAPI, React, and MySQL together:
+
+```powershell
+docker compose up --build
 ```
 
 ## API ingestion
@@ -135,3 +148,4 @@ This is decision-support software, not guaranteed betting advice. Model quality 
 
 See [ROADMAP.md](ROADMAP.md) for the planned path from prototype to production-ready platform.
 See [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) for imported project context and [docs/WORKFLOW.md](docs/WORKFLOW.md) for the branch and PR workflow.
+See [docs/SETUP.md](docs/SETUP.md) for Windows, Linux/macOS, Docker, and configuration setup.

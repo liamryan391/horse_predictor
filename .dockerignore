@@ -1,0 +1,10 @@
+.git/
+.venv/
+.codex_tmp/
+__pycache__/
+*.py[cod]
+*.db
+.env
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
