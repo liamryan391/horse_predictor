@@ -161,3 +161,4 @@ See [docs/INGESTION.md](docs/INGESTION.md) for provider adapter, validation, ret
 See [docs/MODELING.md](docs/MODELING.md) for leakage checks, holdout evaluation, and backtesting metric notes.
 See [docs/API.md](docs/API.md) for versioned backend endpoints, pagination, request IDs, and API security notes.
 See [docs/FRONTEND.md](docs/FRONTEND.md) for the professional workspace, bet journal, theme, and frontend UX notes.
+See [docs/TESTING.md](docs/TESTING.md) for automated backend, data/model, frontend utility, and browser smoke checks.

@@ -334,6 +334,8 @@ Current inspection: the frontend now has responsive workspace navigation, loadin
 - Model leakage tests.
 - Prediction determinism tests.
 
+Current inspection: the Python suite now covers API contracts, provider fixture flattening, provider validation summaries, SQLite repository upserts, Alembic upgrade/downgrade roundtrips, leakage checks, chronological holdout behavior, and deterministic sample-data scoring gates.
+
 ### 7.2 Frontend
 
 - Component tests.
@@ -343,6 +345,8 @@ Current inspection: the frontend now has responsive workspace navigation, loadin
 - Responsive-layout checks.
 - End-to-end race-card workflow.
 
+Current inspection: the frontend now has Node test coverage for browser-local bet journal math, draft validation, and stored-row parsing. Vite build and live HTTP/browser smoke checks remain the UI gate until a dedicated component/e2e runner is introduced.
+
 ### 7.3 Data And Model Tests
 
 - Required-column checks.
@@ -351,6 +355,8 @@ Current inspection: the frontend now has responsive workspace navigation, loadin
 - Chronological split checks.
 - Calibration thresholds.
 - Baseline comparison.
+
+Current inspection: `data_quality.py` now provides reusable required-column, invalid odds/result, duplicate race/runner, calibration, and market-baseline checks used by the automated test suite.
 
 ## Phase 8: Cloud Staging
 

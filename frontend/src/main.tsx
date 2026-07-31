@@ -18,11 +18,18 @@ import {
   WalletCards,
   type LucideIcon
 } from "lucide-react";
+import {
+  betProfit,
+  createBet,
+  parseStoredBets,
+  summarizeBets,
+  type Bet,
+  type BetStatus
+} from "./journal";
 import "./styles.css";
 
 type Page = "workspace" | "journal" | "methodology" | "responsible-use" | "contact";
 type WorkspaceView = "rankings" | "race-card" | "evaluation" | "trends";
-type BetStatus = "open" | "won" | "lost";
 
 type DatabaseSummary = {
   environment: string;
@@ -138,16 +145,6 @@ type Trends = {
   jockey: TrendRow[];
   trainer: TrendRow[];
   owner: TrendRow[];
-};
-
-type Bet = {
-  id: string;
-  createdAt: string;
-  horse: string;
-  track: string;
-  stake: number;
-  odds: number;
-  status: BetStatus;
 };
 
 const navigation: { page: Page; label: string; icon: LucideIcon }[] = [
@@ -707,13 +704,7 @@ function EmptyState({ title, detail }: { title: string; detail: string }) {
 }
 
 function BetJournal() {
-  const [bets, setBets] = useState<Bet[]>(() => {
-    try {
-      return JSON.parse(localStorage.getItem(BETS_KEY) ?? "[]") as Bet[];
-    } catch {
-      return [];
-    }
-  });
+  const [bets, setBets] = useState<Bet[]>(() => parseStoredBets(localStorage.getItem(BETS_KEY)));
   const [draft, setDraft] = useState({
     horse: "",
     track: "",
@@ -726,36 +717,14 @@ function BetJournal() {
     localStorage.setItem(BETS_KEY, JSON.stringify(bets));
   }, [bets]);
 
-  const journal = useMemo(() => {
-    const settled = bets.filter((bet) => bet.status !== "open");
-    const staked = bets.reduce((sum, bet) => sum + bet.stake, 0);
-    const settledStake = settled.reduce((sum, bet) => sum + bet.stake, 0);
-    const profit = settled.reduce((sum, bet) => sum + betProfit(bet), 0);
-    return {
-      count: bets.length,
-      open: bets.filter((bet) => bet.status === "open").length,
-      staked,
-      profit,
-      roi: settledStake > 0 ? profit / settledStake : null
-    };
-  }, [bets]);
+  const journal = useMemo(() => summarizeBets(bets), [bets]);
 
   function submitBet(event: FormEvent) {
     event.preventDefault();
-    const stake = Number(draft.stake);
-    const odds = Number(draft.odds);
-    if (!draft.horse.trim() || !Number.isFinite(stake) || !Number.isFinite(odds) || stake <= 0 || odds <= 1) {
+    const nextBet = createBet(draft, crypto.randomUUID(), new Date().toISOString());
+    if (!nextBet) {
       return;
     }
-    const nextBet: Bet = {
-      id: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
-      horse: draft.horse.trim(),
-      track: draft.track.trim(),
-      stake,
-      odds,
-      status: draft.status
-    };
     setBets((current) => [nextBet, ...current]);
     setDraft({ horse: "", track: "", stake: "10", odds: "3.00", status: "open" });
   }
@@ -871,11 +840,6 @@ function BetJournal() {
       </div>
     </section>
   );
-}
-
-function betProfit(bet: Bet) {
-  if (bet.status === "open") return 0;
-  return bet.status === "won" ? bet.stake * (bet.odds - 1) : -bet.stake;
 }
 
 function MethodologyPage() {

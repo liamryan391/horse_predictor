@@ -144,7 +144,12 @@ def parse_distance(value) -> Optional[float]:
 
 
 def parse_odds(runner: dict):
-    value = first_value(runner, "odds", "decimal_odds", "sp_dec", "sp")
+    value = None
+    for key in ["odds", "decimal_odds", "sp_dec", "sp"]:
+        candidate = runner.get(key)
+        if candidate not in (None, ""):
+            value = candidate
+            break
     if isinstance(value, list) and value:
         value = first_value(value[0], "decimal", "odds", "price")
     if isinstance(value, dict):
