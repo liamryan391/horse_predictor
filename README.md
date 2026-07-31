@@ -132,3 +132,5 @@ Optional model features:
 ## Notes
 
 This is decision-support software, not guaranteed betting advice. Model quality depends on the amount, accuracy, and freshness of historical results. For production, add schema validation, automated backtesting, authentication, and a managed MySQL database.
+
+See [ROADMAP.md](ROADMAP.md) for the planned path from prototype to production-ready platform.
