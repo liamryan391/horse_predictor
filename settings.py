@@ -39,6 +39,7 @@ class Settings:
     sample_historical_csv: Path
     sample_current_csv: Path
     api_auth_token: str = ""
+    api_rate_limit_per_minute: int = 240
 
     @property
     def is_deployed_environment(self) -> bool:
@@ -54,6 +55,8 @@ class Settings:
             errors.append("BACKEND_CORS_ORIGINS must list the deployed frontend origins.")
         if "*" in self.backend_cors_origins:
             errors.append("BACKEND_CORS_ORIGINS must not use '*' with credentials enabled.")
+        if self.is_deployed_environment and not self.api_auth_token:
+            errors.append("API_AUTH_TOKEN must be set before enabling administrative API routes.")
 
         if errors:
             raise RuntimeError("Invalid Horse Predictor configuration: " + " ".join(errors))
@@ -99,4 +102,5 @@ def get_settings() -> Settings:
         sample_historical_csv=Path(os.getenv("SAMPLE_HISTORICAL_CSV", BASE_DIR / "sample_historical_data.csv")),
         sample_current_csv=Path(os.getenv("SAMPLE_CURRENT_CSV", BASE_DIR / "sample_current_races.csv")),
         api_auth_token=os.getenv("API_AUTH_TOKEN", ""),
+        api_rate_limit_per_minute=int(os.getenv("API_RATE_LIMIT_PER_MINUTE", "240")),
     )

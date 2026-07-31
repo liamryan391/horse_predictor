@@ -104,6 +104,7 @@ const navigation: { page: Page; label: string; icon: typeof Home }[] = [
 ];
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+const API_PREFIX = "/api/v1";
 
 function formatPercent(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(value)) return "-";
@@ -127,10 +128,18 @@ function formatSignedNumber(value: number | null | undefined, digits = 2) {
 }
 
 async function apiGet<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`);
+  const response = await fetch(`${API_BASE_URL}${API_PREFIX}${path}`);
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(detail || `Request failed: ${response.status}`);
+    let message = detail || `Request failed: ${response.status}`;
+    try {
+      const payload = JSON.parse(detail) as { error?: { detail?: string; requestId?: string } };
+      const requestId = payload.error?.requestId ? ` (${payload.error.requestId})` : "";
+      message = `${payload.error?.detail ?? `Request failed: ${response.status}`}${requestId}`;
+    } catch {
+      // Keep the raw response body if the server did not return the standard error envelope.
+    }
+    throw new Error(message);
   }
   return response.json() as Promise<T>;
 }
@@ -278,10 +287,10 @@ function RaceLab() {
     setError(null);
     try {
       const [summaryResult, predictionResult, modelResult, trendResult] = await Promise.all([
-        apiGet<Summary>("/api/summary"),
-        apiGet<{ predictions: Prediction[] }>("/api/predictions"),
-        apiGet<ModelStatus>("/api/model"),
-        apiGet<Trends>("/api/trends")
+        apiGet<Summary>("/summary"),
+        apiGet<{ predictions: Prediction[] }>("/predictions"),
+        apiGet<ModelStatus>("/model"),
+        apiGet<Trends>("/trends")
       ]);
       setSummary(summaryResult);
       setPredictions(predictionResult.predictions);

@@ -1,12 +1,38 @@
 from __future__ import annotations
 
+import contextvars
+import logging
 import math
-from typing import Any
+import time
+import uuid
+from collections import defaultdict, deque
+from datetime import date
+from typing import Annotated, Any, Literal
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from api_contracts import (
+    EntityProfileResponse,
+    ErrorResponse,
+    HealthResponse,
+    IngestionStatusResponse,
+    MeetingsResponse,
+    ModelEvaluationResponse,
+    ModelStatusResponse,
+    PageMeta,
+    PredictionsResponse,
+    RaceCardResponse,
+    RacesResponse,
+    ReadinessResponse,
+    SeedSampleResponse,
+    SummaryResponse,
+    TrendsResponse,
+)
 from prediction_model import build_feature_table, evaluate_model, score_current_races, summarize_entities, train_model
 from racing_storage import (
     TABLES,
@@ -21,14 +47,110 @@ SETTINGS = get_settings()
 SETTINGS.validate_runtime()
 DATABASE_URL = SETTINGS.database_url
 
-app = FastAPI(title="Horse Predictor API", version="0.2.0")
+SortDirection = Literal["asc", "desc"]
+EntityType = Literal["horse", "jockey", "trainer", "owner"]
+
+logger = logging.getLogger("horse_predictor.api")
+request_id_context: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
+rate_limit_hits: dict[str, deque[float]] = defaultdict(deque)
+admin_auth = HTTPBearer(auto_error=False)
+
+app = FastAPI(
+    title="Horse Predictor API",
+    version="0.3.0",
+    description="Versioned API for race cards, model predictions, ingestion status, and model evaluation.",
+    responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}, 429: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(SETTINGS.backend_cors_origins),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+    expose_headers=["X-Request-ID"],
 )
+
+router = APIRouter(tags=["v1"])
+
+
+def request_id() -> str:
+    return request_id_context.get()
+
+
+def error_payload(status_code: int, detail: str) -> dict[str, Any]:
+    return {"error": {"requestId": request_id(), "statusCode": status_code, "detail": detail}}
+
+
+def client_key(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",", 1)[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def is_rate_limited(key: str) -> bool:
+    limit = SETTINGS.api_rate_limit_per_minute
+    if limit <= 0:
+        return False
+
+    now = time.monotonic()
+    window_start = now - 60
+    hits = rate_limit_hits[key]
+    while hits and hits[0] < window_start:
+        hits.popleft()
+    if len(hits) >= limit:
+        return True
+    hits.append(now)
+    return False
+
+
+@app.middleware("http")
+async def request_context_middleware(request: Request, call_next):
+    incoming_request_id = request.headers.get("x-request-id")
+    active_request_id = incoming_request_id or uuid.uuid4().hex
+    token = request_id_context.set(active_request_id)
+    start = time.monotonic()
+
+    try:
+        if is_rate_limited(client_key(request)):
+            response = JSONResponse(
+                status_code=429,
+                content=error_payload(429, "API rate limit exceeded. Try again shortly."),
+            )
+        else:
+            response = await call_next(request)
+        response.headers["X-Request-ID"] = active_request_id
+        return response
+    finally:
+        elapsed_ms = round((time.monotonic() - start) * 1000, 2)
+        logger.info(
+            "api_request",
+            extra={
+                "request_id": active_request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "elapsed_ms": elapsed_ms,
+            },
+        )
+        request_id_context.reset(token)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
+    detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+    return JSONResponse(status_code=exc.status_code, content=error_payload(exc.status_code, detail), headers=exc.headers)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
+    return JSONResponse(status_code=422, content=error_payload(422, str(exc)))
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONResponse:
+    logger.exception("api_unhandled_error", extra={"request_id": request_id()})
+    detail = "Internal server error." if SETTINGS.is_deployed_environment else str(exc)
+    return JSONResponse(status_code=500, content=error_payload(500, detail))
 
 
 def ensure_seed_data() -> None:
@@ -58,6 +180,10 @@ def database_summary() -> dict[str, Any]:
     return SETTINGS.database_summary()
 
 
+def current_counts() -> dict[str, int]:
+    return table_counts(DATABASE_URL)
+
+
 def load_model_bundle() -> tuple[pd.DataFrame, pd.DataFrame, Any, pd.DataFrame]:
     ensure_seed_data()
     history_df = read_races(DATABASE_URL, TABLES["historical"])
@@ -70,19 +196,136 @@ def load_model_bundle() -> tuple[pd.DataFrame, pd.DataFrame, Any, pd.DataFrame]:
     return history_df, current_df, model, history_features
 
 
-@app.get("/api/health")
+def normalize_date_filter(value: date | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def text_filter(df: pd.DataFrame, column: str, value: str | None, exact: bool = False) -> pd.DataFrame:
+    if not value or column not in df.columns:
+        return df
+    text = df[column].fillna("").astype(str)
+    needle = value.strip()
+    if exact:
+        return df[text.str.lower() == needle.lower()]
+    return df[text.str.contains(needle, case=False, regex=False)]
+
+
+def filter_race_rows(
+    df: pd.DataFrame,
+    track: str | None = None,
+    race_date: date | None = None,
+    horse: str | None = None,
+) -> pd.DataFrame:
+    filtered = df.copy()
+    filtered = text_filter(filtered, "track", track, exact=True)
+    filtered = text_filter(filtered, "horse", horse)
+    target_date = normalize_date_filter(race_date)
+    if target_date and "race_date" in filtered.columns:
+        filtered = filtered[filtered["race_date"].map(clean_value) == target_date]
+    return filtered
+
+
+def sort_frame(df: pd.DataFrame, sort_by: str, direction: SortDirection) -> pd.DataFrame:
+    if sort_by not in df.columns:
+        raise HTTPException(status_code=422, detail=f"Unsupported sort field: {sort_by}")
+    return df.sort_values(sort_by, ascending=direction == "asc", na_position="last", kind="mergesort")
+
+
+def page_frame(df: pd.DataFrame, limit: int, offset: int) -> tuple[pd.DataFrame, dict[str, int]]:
+    total = len(df)
+    page_df = df.iloc[offset : offset + limit].copy()
+    return page_df, {"limit": limit, "offset": offset, "returned": len(page_df), "total": total}
+
+
+def build_page(meta: dict[str, int]) -> PageMeta:
+    return PageMeta(**meta)
+
+
+def build_meetings(current_df: pd.DataFrame) -> pd.DataFrame:
+    if current_df.empty:
+        return pd.DataFrame(columns=["race_date", "track", "races", "runners", "first_distance", "last_distance"])
+    grouped = (
+        current_df.groupby(["race_date", "track"], dropna=False)
+        .agg(
+            races=("distance", "nunique"),
+            runners=("horse", "count"),
+            first_distance=("distance", "min"),
+            last_distance=("distance", "max"),
+        )
+        .reset_index()
+        .sort_values(["race_date", "track"], kind="mergesort")
+    )
+    return grouped
+
+
+def build_race_summaries(current_df: pd.DataFrame) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    group_columns = ["race_date", "track", "distance", "surface"]
+    for key, race_df in current_df.groupby(group_columns, dropna=False):
+        odds = pd.to_numeric(race_df["odds"], errors="coerce")
+        favorite = None if odds.dropna().empty else race_df.loc[odds.idxmin(), "horse"]
+        rows.append(
+            {
+                "race_date": key[0],
+                "track": key[1],
+                "distance": key[2],
+                "surface": key[3],
+                "runners": int(race_df["horse"].count()),
+                "market_favorite": favorite,
+                "average_odds": float(odds.mean()) if not odds.dropna().empty else None,
+            }
+        )
+    return pd.DataFrame(rows).sort_values(["race_date", "track", "distance"], kind="mergesort") if rows else pd.DataFrame(columns=["race_date", "track", "distance", "surface", "runners", "market_favorite", "average_odds"])
+
+
+def require_admin(credentials: HTTPAuthorizationCredentials | None = Depends(admin_auth)) -> None:
+    if not SETTINGS.api_auth_token:
+        if SETTINGS.is_deployed_environment:
+            raise HTTPException(status_code=500, detail="API_AUTH_TOKEN is required for administrative API routes.")
+        return
+    if not credentials or credentials.scheme.lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Administrative token required.", headers={"WWW-Authenticate": "Bearer"})
+    if credentials.credentials != SETTINGS.api_auth_token:
+        raise HTTPException(status_code=403, detail="Administrative token is invalid.")
+
+
+@router.get("/health", response_model=HealthResponse)
 def health() -> dict[str, Any]:
-    counts = table_counts(DATABASE_URL)
-    return {"status": "ok", "database": database_summary(), "counts": counts}
+    return {"status": "ok", "requestId": request_id(), "database": database_summary(), "counts": current_counts()}
 
 
-@app.get("/api/summary")
+@router.get("/ready", response_model=ReadinessResponse)
+def ready() -> dict[str, Any]:
+    counts = current_counts()
+    database_ready = counts["historical"] > 0 and counts["current"] > 0
+    model_ready = False
+    message = None
+    if database_ready:
+        try:
+            load_model_bundle()
+            model_ready = True
+        except HTTPException as exc:
+            message = str(exc.detail)
+    else:
+        message = "Historical and current race data are required before the API is ready."
+    return {
+        "status": "ok" if database_ready and model_ready else "degraded",
+        "requestId": request_id(),
+        "databaseReady": database_ready,
+        "modelReady": model_ready,
+        "counts": counts,
+        "message": message,
+    }
+
+
+@router.get("/summary", response_model=SummaryResponse)
 def summary() -> dict[str, Any]:
     ensure_seed_data()
-    counts = table_counts(DATABASE_URL)
+    counts = current_counts()
     status_df = ingestion_status(DATABASE_URL)
     last_refresh = None if status_df.empty else clean_value(status_df.iloc[0]["ingested_at"])
     return {
+        "requestId": request_id(),
         "database": database_summary(),
         "historicalRuns": counts["historical"],
         "currentRunners": counts["current"],
@@ -90,25 +333,106 @@ def summary() -> dict[str, Any]:
     }
 
 
-@app.get("/api/predictions")
-def predictions() -> dict[str, Any]:
+@router.get("/meetings", response_model=MeetingsResponse)
+def meetings(
+    race_date: Annotated[date | None, Query()] = None,
+    track: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict[str, Any]:
+    ensure_seed_data()
+    current_df = filter_race_rows(read_races(DATABASE_URL, TABLES["current"]), track=track, race_date=race_date)
+    meeting_df = build_meetings(current_df)
+    page_df, meta = page_frame(meeting_df, limit, offset)
+    return {"requestId": request_id(), "meetings": records(page_df), "page": build_page(meta)}
+
+
+@router.get("/races", response_model=RacesResponse)
+def races(
+    race_date: Annotated[date | None, Query()] = None,
+    track: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict[str, Any]:
+    ensure_seed_data()
+    current_df = filter_race_rows(read_races(DATABASE_URL, TABLES["current"]), track=track, race_date=race_date)
+    race_df = build_race_summaries(current_df)
+    page_df, meta = page_frame(race_df, limit, offset)
+    return {"requestId": request_id(), "races": records(page_df), "page": build_page(meta)}
+
+
+@router.get("/race-card", response_model=RaceCardResponse)
+def race_card(
+    race_date: Annotated[date | None, Query()] = None,
+    track: Annotated[str | None, Query()] = None,
+    horse: Annotated[str | None, Query()] = None,
+    sort_by: Annotated[Literal["race_date", "track", "horse", "odds", "draw"], Query()] = "race_date",
+    direction: Annotated[SortDirection, Query()] = "asc",
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict[str, Any]:
+    ensure_seed_data()
+    current_df = filter_race_rows(read_races(DATABASE_URL, TABLES["current"]), track=track, race_date=race_date, horse=horse)
+    current_df = sort_frame(current_df, sort_by, direction)
+    page_df, meta = page_frame(current_df, limit, offset)
+    return {"requestId": request_id(), "raceCard": records(page_df), "page": build_page(meta)}
+
+
+@router.get("/predictions", response_model=PredictionsResponse)
+def predictions(
+    race_date: Annotated[date | None, Query()] = None,
+    track: Annotated[str | None, Query()] = None,
+    horse: Annotated[str | None, Query()] = None,
+    sort_by: Annotated[Literal["suggested_rank", "win_probability", "value_edge", "odds", "horse", "track"], Query()] = "suggested_rank",
+    direction: Annotated[SortDirection, Query()] = "asc",
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict[str, Any]:
     _, current_df, model, _ = load_model_bundle()
     scored_df = score_current_races(model, current_df)
-    return {"predictions": records(scored_df)}
+    scored_df = filter_race_rows(scored_df, track=track, race_date=race_date, horse=horse)
+    scored_df = sort_frame(scored_df, sort_by, direction)
+    page_df, meta = page_frame(scored_df, limit, offset)
+    return {"requestId": request_id(), "predictions": records(page_df), "page": build_page(meta)}
 
 
-@app.get("/api/race-card")
-def race_card() -> dict[str, Any]:
+@router.get("/entities/{entity_type}/{name}", response_model=EntityProfileResponse)
+def entity_profile(
+    entity_type: EntityType,
+    name: str,
+    limit: Annotated[int, Query(ge=1, le=100)] = 10,
+) -> dict[str, Any]:
     ensure_seed_data()
-    current_df = read_races(DATABASE_URL, TABLES["current"])
-    return {"raceCard": records(current_df)}
+    history_df = read_races(DATABASE_URL, TABLES["historical"])
+    matched = text_filter(history_df, entity_type, name, exact=True)
+    if matched.empty:
+        raise HTTPException(status_code=404, detail=f"No {entity_type} profile found for {name}.")
+
+    finishing_position = pd.to_numeric(matched["finishing_position"], errors="coerce")
+    wins = int((finishing_position == 1).sum())
+    runs = int(len(matched))
+    odds = pd.to_numeric(matched["odds"], errors="coerce")
+    recent = matched.sort_values("race_date", ascending=False, kind="mergesort").head(limit)
+    latest_date = pd.to_datetime(matched["race_date"], errors="coerce").max()
+    return {
+        "requestId": request_id(),
+        "entityType": entity_type,
+        "name": name,
+        "runs": runs,
+        "wins": wins,
+        "winRate": wins / runs if runs else None,
+        "averageOdds": float(odds.mean()) if not odds.dropna().empty else None,
+        "latestRaceDate": clean_value(latest_date),
+        "recentRuns": records(recent),
+    }
 
 
-@app.get("/api/model")
+@router.get("/model", response_model=ModelStatusResponse)
 def model_status() -> dict[str, Any]:
     _, _, model, history_features = load_model_bundle()
     evaluation = evaluate_model(history_features)
     return {
+        "requestId": request_id(),
         "trainingRows": model.training_rows,
         "winnerRate": model.winner_rate,
         "trainingStart": model.training_start,
@@ -120,20 +444,34 @@ def model_status() -> dict[str, Any]:
     }
 
 
-@app.get("/api/model/evaluation")
+@router.get("/model/evaluation", response_model=ModelEvaluationResponse)
 def model_evaluation() -> dict[str, Any]:
     _, _, _, history_features = load_model_bundle()
-    return {"evaluation": evaluate_model(history_features).to_dict()}
+    return {"requestId": request_id(), "evaluation": evaluate_model(history_features).to_dict()}
 
 
-@app.get("/api/trends")
-def trends() -> dict[str, Any]:
+@router.get("/trends", response_model=TrendsResponse)
+def trends(limit: Annotated[int, Query(ge=1, le=100)] = 25) -> dict[str, Any]:
     _, _, _, history_features = load_model_bundle()
     entity_tables = summarize_entities(history_features)
-    return {name: records(table.head(25)) for name, table in entity_tables.items()}
+    return {"requestId": request_id(), **{name: records(table.head(limit)) for name, table in entity_tables.items()}}
 
 
-@app.get("/api/ingestion-status")
-def ingestion() -> dict[str, Any]:
+@router.get("/ingestion-status", response_model=IngestionStatusResponse)
+def ingestion(limit: Annotated[int, Query(ge=1, le=100)] = 20, offset: Annotated[int, Query(ge=0)] = 0) -> dict[str, Any]:
     ensure_seed_data()
-    return {"ingestion": records(ingestion_status(DATABASE_URL))}
+    status_df = ingestion_status(DATABASE_URL)
+    page_df, meta = page_frame(status_df, limit, offset)
+    return {"requestId": request_id(), "ingestion": records(page_df), "page": build_page(meta)}
+
+
+@router.post("/admin/seed-sample", response_model=SeedSampleResponse)
+def seed_sample(_: None = Depends(require_admin)) -> dict[str, Any]:
+    return {
+        "requestId": request_id(),
+        "seeded": seed_database_from_samples(DATABASE_URL, SETTINGS.sample_historical_csv, SETTINGS.sample_current_csv),
+    }
+
+
+app.include_router(router, prefix="/api/v1")
+app.include_router(router, prefix="/api")

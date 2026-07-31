@@ -1,0 +1,219 @@
+from __future__ import annotations
+
+from typing import Any, Dict, List
+
+from pydantic import BaseModel, Field
+
+
+class ErrorBody(BaseModel):
+    requestId: str
+    statusCode: int
+    detail: str
+
+
+class ErrorResponse(BaseModel):
+    error: ErrorBody
+
+
+class DatabaseSummary(BaseModel):
+    environment: str
+    engine: str
+    driver: str
+    database: str | None
+
+
+class TableCounts(BaseModel):
+    historical: int
+    current: int
+
+
+class PageMeta(BaseModel):
+    limit: int
+    offset: int
+    returned: int
+    total: int
+
+
+class HealthResponse(BaseModel):
+    status: str
+    requestId: str
+    database: DatabaseSummary
+    counts: TableCounts
+
+
+class ReadinessResponse(BaseModel):
+    status: str
+    requestId: str
+    databaseReady: bool
+    modelReady: bool
+    counts: TableCounts
+    message: str | None = None
+
+
+class SummaryResponse(BaseModel):
+    requestId: str
+    database: DatabaseSummary
+    historicalRuns: int
+    currentRunners: int
+    lastRefresh: str | None
+
+
+class RaceRunner(BaseModel):
+    id: int | None = None
+    race_date: str | None = None
+    track: str | None = None
+    distance: float | None = None
+    surface: str | None = None
+    horse: str | None = None
+    jockey: str | None = None
+    owner: str | None = None
+    trainer: str | None = None
+    odds: float | None = None
+    finishing_position: float | None = None
+    horse_age: float | None = None
+    horse_weight: float | None = None
+    draw: float | None = None
+    speed_rating: float | None = None
+    class_rating: float | None = None
+    days_since_last_run: float | None = None
+    past_bets_count: float | None = None
+    past_bets_profit: float | None = None
+    weather: str | None = None
+    source: str | None = None
+    ingested_at: str | None = None
+
+
+class PredictionRow(RaceRunner):
+    race_month: float | None = None
+    race_day_of_week: float | None = None
+    implied_probability: float | None = None
+    field_size: float | None = None
+    odds_rank: float | None = None
+    relative_speed_rating: float | None = None
+    relative_class_rating: float | None = None
+    win_probability: float | None = None
+    model_odds: float | None = None
+    value_edge: float | None = None
+    suggested_rank: float | None = None
+
+
+class RaceCardResponse(BaseModel):
+    requestId: str
+    raceCard: List[RaceRunner]
+    page: PageMeta
+
+
+class PredictionsResponse(BaseModel):
+    requestId: str
+    predictions: List[PredictionRow]
+    page: PageMeta
+
+
+class MeetingRow(BaseModel):
+    race_date: str | None = None
+    track: str | None = None
+    races: int
+    runners: int
+    first_distance: float | None = None
+    last_distance: float | None = None
+
+
+class MeetingsResponse(BaseModel):
+    requestId: str
+    meetings: List[MeetingRow]
+    page: PageMeta
+
+
+class RaceSummaryRow(BaseModel):
+    race_date: str | None = None
+    track: str | None = None
+    distance: float | None = None
+    surface: str | None = None
+    runners: int
+    market_favorite: str | None = None
+    average_odds: float | None = None
+
+
+class RacesResponse(BaseModel):
+    requestId: str
+    races: List[RaceSummaryRow]
+    page: PageMeta
+
+
+class TrendRow(BaseModel):
+    jockey: str | None = None
+    trainer: str | None = None
+    owner: str | None = None
+    runs: int
+    wins: int
+    avg_odds: float | None = None
+    win_rate: float | None = None
+
+
+class TrendsResponse(BaseModel):
+    requestId: str
+    jockey: List[TrendRow]
+    trainer: List[TrendRow]
+    owner: List[TrendRow]
+
+
+class ModelEvaluation(BaseModel):
+    status: str
+    message: str | None = None
+    trainingRows: int
+    validationRows: int
+    trainingRaces: int
+    validationRaces: int
+    evaluationStart: str | None = None
+    evaluationEnd: str | None = None
+    metrics: Dict[str, float | int | None]
+    leakageFeatures: List[str]
+
+
+class ModelStatusResponse(BaseModel):
+    requestId: str
+    trainingRows: int
+    winnerRate: float
+    trainingStart: str | None = None
+    trainingEnd: str | None = None
+    featureCount: int
+    features: List[str]
+    historicalRows: int
+    evaluation: ModelEvaluation
+
+
+class ModelEvaluationResponse(BaseModel):
+    requestId: str
+    evaluation: ModelEvaluation
+
+
+class IngestionRow(BaseModel):
+    table_name: str | None = None
+    source: str | None = None
+    row_count: int | None = None
+    status: str | None = None
+    message: str | None = None
+    ingested_at: str | None = None
+
+
+class IngestionStatusResponse(BaseModel):
+    requestId: str
+    ingestion: List[IngestionRow]
+    page: PageMeta
+
+
+class EntityProfileResponse(BaseModel):
+    requestId: str
+    entityType: str
+    name: str
+    runs: int
+    wins: int
+    winRate: float | None = None
+    averageOdds: float | None = None
+    latestRaceDate: str | None = None
+    recentRuns: List[RaceRunner] = Field(default_factory=list)
+
+
+class SeedSampleResponse(BaseModel):
+    requestId: str
+    seeded: Dict[str, int]

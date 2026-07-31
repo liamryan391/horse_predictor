@@ -159,3 +159,4 @@ See [docs/SETUP.md](docs/SETUP.md) for Windows, Linux/macOS, Docker, and configu
 See [docs/DATABASE.md](docs/DATABASE.md) for schema, migration, and ingestion-write notes.
 See [docs/INGESTION.md](docs/INGESTION.md) for provider adapter, validation, retry, and failure logging notes.
 See [docs/MODELING.md](docs/MODELING.md) for leakage checks, holdout evaluation, and backtesting metric notes.
+See [docs/API.md](docs/API.md) for versioned backend endpoints, pagination, request IDs, and API security notes.

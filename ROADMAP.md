@@ -272,6 +272,8 @@ Current inspection: model metrics are visible in the API, React Race Lab, and St
 
 Current inspection: `/api/health` and `/api/summary` return sanitized database metadata instead of the raw database URL.
 
+Current inspection: backend routes are now mounted under `/api/v1` with `/api` compatibility, Pydantic response models, request IDs, standardized error envelopes, filtering, sorting, pagination, meetings/races/entity-profile endpoints, API docs, and a protected sample-seed admin endpoint. The frontend now calls the versioned API. Full user auth, role-based authorization, and production gateway rate limiting remain future work.
+
 ## Phase 6: Professional Frontend
 
 ### 6.1 Public Pages

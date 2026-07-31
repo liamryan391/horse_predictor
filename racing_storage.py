@@ -31,7 +31,10 @@ def get_engine(database_url: str | Path | None = None) -> Engine:
 
 def init_db(database_url: str | Path | None = None) -> None:
     engine = get_engine(database_url)
-    METADATA.create_all(engine)
+    try:
+        METADATA.create_all(engine)
+    finally:
+        engine.dispose()
 
 
 def normalize_race_frame(df: pd.DataFrame, current_mode: bool = False) -> pd.DataFrame:
@@ -99,28 +102,31 @@ def write_races(
     records = [clean_record(record) for record in write_df.to_dict(orient="records")]
     started_at = utc_now()
 
-    with engine.begin() as conn:
-        if replace:
-            conn.execute(delete(table))
-            if records:
-                conn.execute(insert(table), records)
-        elif records:
-            upsert_race_records(conn, table, records)
-        conn.execute(
-            insert(log_table),
-            {
-                "table_name": table_name,
-                "source": source,
-                "row_count": len(write_df),
-                "status": "success",
-                "message": message,
-                "ingested_at": utc_now(),
-            },
-        )
-        run_message = "replace" if replace else "upsert"
-        if message:
-            run_message = f"{run_message}; {message}"
-        insert_ingestion_run(conn, source, table_name, "success", len(records), run_message, started_at)
+    try:
+        with engine.begin() as conn:
+            if replace:
+                conn.execute(delete(table))
+                if records:
+                    conn.execute(insert(table), records)
+            elif records:
+                upsert_race_records(conn, table, records)
+            conn.execute(
+                insert(log_table),
+                {
+                    "table_name": table_name,
+                    "source": source,
+                    "row_count": len(write_df),
+                    "status": "success",
+                    "message": message,
+                    "ingested_at": utc_now(),
+                },
+            )
+            run_message = "replace" if replace else "upsert"
+            if message:
+                run_message = f"{run_message}; {message}"
+            insert_ingestion_run(conn, source, table_name, "success", len(records), run_message, started_at)
+    finally:
+        engine.dispose()
 
     return len(write_df)
 
@@ -150,8 +156,11 @@ def record_ingestion_run(
 ) -> None:
     init_db(database_url)
     engine = get_engine(database_url)
-    with engine.begin() as conn:
-        insert_ingestion_run(conn, provider, target_table, status, row_count, message, utc_now())
+    try:
+        with engine.begin() as conn:
+            insert_ingestion_run(conn, provider, target_table, status, row_count, message, utc_now())
+    finally:
+        engine.dispose()
 
 
 def read_races(database_url: str | Path | None, table_name: str) -> pd.DataFrame:
@@ -160,35 +169,44 @@ def read_races(database_url: str | Path | None, table_name: str) -> pd.DataFrame
 
     init_db(database_url)
     engine = get_engine(database_url)
-    with engine.connect() as conn:
-        return pd.read_sql_query(text(f"SELECT * FROM {table_name}"), conn)
+    try:
+        with engine.connect() as conn:
+            return pd.read_sql_query(text(f"SELECT * FROM {table_name}"), conn)
+    finally:
+        engine.dispose()
 
 
 def table_counts(database_url: str | Path | None) -> Dict[str, int]:
     init_db(database_url)
     engine = get_engine(database_url)
-    with engine.connect() as conn:
-        return {
-            name: int(conn.execute(select(func.count()).select_from(METADATA.tables[table])).scalar_one())
-            for name, table in TABLES.items()
-        }
+    try:
+        with engine.connect() as conn:
+            return {
+                name: int(conn.execute(select(func.count()).select_from(METADATA.tables[table])).scalar_one())
+                for name, table in TABLES.items()
+            }
+    finally:
+        engine.dispose()
 
 
 def ingestion_status(database_url: str | Path | None) -> pd.DataFrame:
     init_db(database_url)
     engine = get_engine(database_url)
-    with engine.connect() as conn:
-        return pd.read_sql_query(
-            text(
-                """
-                SELECT target_table AS table_name, provider AS source, row_count, status, message, completed_at AS ingested_at
-                FROM api_ingestion_runs
-                ORDER BY id DESC
-                LIMIT 20
-                """
-            ),
-            conn,
-        )
+    try:
+        with engine.connect() as conn:
+            return pd.read_sql_query(
+                text(
+                    """
+                    SELECT target_table AS table_name, provider AS source, row_count, status, message, completed_at AS ingested_at
+                    FROM api_ingestion_runs
+                    ORDER BY id DESC
+                    LIMIT 20
+                    """
+                ),
+                conn,
+            )
+    finally:
+        engine.dispose()
 
 
 def seed_database_from_samples(

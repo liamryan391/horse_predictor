@@ -39,6 +39,8 @@ Run ingestion with sample data:
 
 Provider ingestion changes should include adapter validation or a smoke test against a throwaway SQLite database.
 
+Backend API changes should include contract smoke tests for response shape, filtering, and pagination.
+
 ## Release Flow
 
 1. Merge feature work into `development`.
