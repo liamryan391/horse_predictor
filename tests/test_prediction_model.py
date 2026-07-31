@@ -1,11 +1,21 @@
 from __future__ import annotations
 
 from pathlib import Path
+import tempfile
 import unittest
 
 import pandas as pd
 
-from prediction_model import assert_no_leakage, build_feature_table, evaluate_model, leakage_features, train_model
+from prediction_model import (
+    assert_no_leakage,
+    build_feature_table,
+    evaluate_model,
+    leakage_features,
+    load_model_artifact,
+    save_model_artifact,
+    score_current_races,
+    train_model,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,6 +56,31 @@ class PredictionModelTests(unittest.TestCase):
 
         ascot_rows = features[features["track"] == "Ascot"]
         self.assertEqual([2, 2], ascot_rows["field_size"].tolist())
+
+    def test_model_artifact_roundtrip_keeps_predictions_deterministic(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            features = build_feature_table(self.history)
+            current = pd.read_csv(ROOT / "sample_current_races.csv")
+            model = train_model(features)
+            expected = score_current_races(model, current)["win_probability"].round(12).tolist()
+
+            artifact = save_model_artifact(model, temp_dir, code_commit_sha="unit-test")
+            loaded = load_model_artifact(
+                artifact.uri,
+                expected_sha256=artifact.sha256,
+                expected_feature_schema_hash=artifact.feature_schema_hash,
+            )
+            actual = score_current_races(loaded, current)["win_probability"].round(12).tolist()
+
+            self.assertEqual(expected, actual)
+            self.assertEqual("unit-test", artifact.code_commit_sha)
+            self.assertEqual(64, len(artifact.sha256))
+
+            with self.assertRaises(ValueError):
+                load_model_artifact(artifact.uri, expected_sha256="0" * 64)
+
+            with self.assertRaises(ValueError):
+                load_model_artifact(artifact.uri, expected_feature_schema_hash="1" * 64)
 
 
 if __name__ == "__main__":

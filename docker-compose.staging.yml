@@ -18,6 +18,8 @@ services:
       MAX_REQUEST_BODY_BYTES: ${MAX_REQUEST_BODY_BYTES:-1048576}
       DATA_FRESHNESS_MAX_AGE_HOURS: ${DATA_FRESHNESS_MAX_AGE_HOURS:-24}
       LOG_FORMAT: ${LOG_FORMAT:-json}
+      MODEL_ARTIFACT_DIR: ${MODEL_ARTIFACT_DIR:-/app/model_artifacts}
+      REQUIRE_APPROVED_MODEL_ARTIFACT: ${REQUIRE_APPROVED_MODEL_ARTIFACT:-true}
       RESPONSIBLE_GAMBLING_URL: ${RESPONSIBLE_GAMBLING_URL:-}
       PRIVACY_POLICY_URL: ${PRIVACY_POLICY_URL:-}
       TERMS_OF_USE_URL: ${TERMS_OF_USE_URL:-}
@@ -29,6 +31,8 @@ services:
       RACING_API_PASSWORD: ${RACING_API_PASSWORD:-}
     ports:
       - "8000:8000"
+    volumes:
+      - model-artifacts:/app/model_artifacts
     healthcheck:
       test:
         - CMD
@@ -55,6 +59,8 @@ services:
       MAX_REQUEST_BODY_BYTES: ${MAX_REQUEST_BODY_BYTES:-1048576}
       DATA_FRESHNESS_MAX_AGE_HOURS: ${DATA_FRESHNESS_MAX_AGE_HOURS:-24}
       LOG_FORMAT: ${LOG_FORMAT:-json}
+      MODEL_ARTIFACT_DIR: ${MODEL_ARTIFACT_DIR:-/app/model_artifacts}
+      REQUIRE_APPROVED_MODEL_ARTIFACT: ${REQUIRE_APPROVED_MODEL_ARTIFACT:-true}
       RESPONSIBLE_GAMBLING_URL: ${RESPONSIBLE_GAMBLING_URL:-}
       PRIVACY_POLICY_URL: ${PRIVACY_POLICY_URL:-}
       TERMS_OF_USE_URL: ${TERMS_OF_USE_URL:-}
@@ -84,3 +90,6 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+
+volumes:
+  model-artifacts:

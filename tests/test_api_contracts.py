@@ -8,8 +8,9 @@ import unittest
 
 _TEMP_DIR = tempfile.TemporaryDirectory()
 os.environ["DATABASE_URL"] = f"sqlite:///{(Path(_TEMP_DIR.name) / 'api_contracts.db').as_posix()}"
+os.environ["MODEL_ARTIFACT_DIR"] = str(Path(_TEMP_DIR.name) / "artifacts")
 
-from api import SETTINGS, capture_model_evaluation, capture_prediction_run, entity_profile, health, meetings, model_registry, normalize_request_id, prediction_run_detail, prediction_runs, predictions, race_card, ready, safeguards, summary
+from api import SETTINGS, approve_model, capture_model_evaluation, capture_prediction_run, entity_profile, health, meetings, model_registry, model_status, normalize_request_id, prediction_run_detail, prediction_runs, predictions, race_card, ready, safeguards, summary
 from api_contracts import (
     HealthResponse,
     ModelRegistryResponse,
@@ -62,7 +63,22 @@ class APIContractTests(unittest.TestCase):
 
         self.assertGreaterEqual(response.page.total, 1)
         self.assertEqual(snapshot.model.id, response.models[0].id)
+        self.assertTrue(snapshot.model.artifactReady)
+        self.assertIsNotNone(snapshot.model.artifactSha256)
+        self.assertIsNotNone(snapshot.model.featureSchemaHash)
         self.assertIn("runner_brier_score", response.models[0].metrics)
+
+    def test_model_approval_requires_and_serves_persisted_artifact(self) -> None:
+        snapshot = ModelSnapshotResponse(**capture_model_evaluation(None))
+        approved = ModelSnapshotResponse(**approve_model(snapshot.model.id, None))
+        status = model_status()
+        run = PredictionRunResponse(**capture_prediction_run(None, require_approved_model=True))
+
+        self.assertEqual("approved", approved.model.status)
+        self.assertTrue(approved.model.artifactReady)
+        self.assertEqual("artifact", status["servingMode"])
+        self.assertEqual(approved.model.id, status["modelVersionId"])
+        self.assertEqual(approved.model.id, run.run.modelVersionId)
 
     def test_prediction_runs_expose_persisted_scoring_snapshots(self) -> None:
         snapshot = PredictionRunResponse(**capture_prediction_run(None))

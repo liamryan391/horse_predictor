@@ -220,6 +220,9 @@ class ModelEvaluation(BaseModel):
 
 class ModelStatusResponse(BaseModel):
     requestId: str
+    modelVersionId: int | None = None
+    servingMode: str = "in_memory"
+    artifactUri: str | None = None
     trainingRows: int
     winnerRate: float
     trainingStart: str | None = None
@@ -244,6 +247,10 @@ class ModelRegistryRow(BaseModel):
     trainingStart: str | None = None
     trainingEnd: str | None = None
     artifactUri: str | None = None
+    artifactSha256: str | None = None
+    featureSchemaHash: str | None = None
+    codeCommitSha: str | None = None
+    artifactReady: bool = False
     createdAt: str | None = None
     updatedAt: str | None = None
     metrics: Dict[str, float | int | None]

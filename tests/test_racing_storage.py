@@ -10,7 +10,7 @@ from alembic.config import Config
 import pandas as pd
 from sqlalchemy import create_engine, inspect
 
-from prediction_model import build_feature_table, evaluate_model, score_current_races, train_model
+from prediction_model import build_feature_table, evaluate_model, save_model_artifact, score_current_races, train_model
 from racing_storage import (
     TABLES,
     approve_model_version,
@@ -66,11 +66,24 @@ class RacingStorageTests(unittest.TestCase):
             features = build_feature_table(pd.read_csv(ROOT / "sample_historical_data.csv"))
             model = train_model(features)
             evaluation = evaluate_model(features)
+            artifact = save_model_artifact(model, temp_dir, code_commit_sha="storage-test")
 
-            snapshot = record_model_evaluation_snapshot(database_url, model, evaluation, name="candidate-smoke")
+            snapshot = record_model_evaluation_snapshot(
+                database_url,
+                model,
+                evaluation,
+                name="candidate-smoke",
+                artifact_uri=artifact.uri,
+                artifact_sha256=artifact.sha256,
+                feature_schema_hash=artifact.feature_schema_hash,
+                code_commit_sha=artifact.code_commit_sha,
+            )
 
             self.assertEqual("candidate-smoke", snapshot["name"])
             self.assertEqual("candidate", snapshot["status"])
+            self.assertTrue(snapshot["artifactReady"])
+            self.assertEqual(artifact.sha256, snapshot["artifactSha256"])
+            self.assertEqual("storage-test", snapshot["codeCommitSha"])
             self.assertIn("runner_brier_score", snapshot["metrics"])
 
             registry = read_model_registry(database_url)
@@ -132,17 +145,24 @@ class RacingStorageTests(unittest.TestCase):
                 command.upgrade(config, "head")
                 engine = create_engine(database_url)
                 try:
-                    table_names = set(inspect(engine).get_table_names())
+                    with engine.connect() as conn:
+                        inspector = inspect(conn)
+                        table_names = set(inspector.get_table_names())
+                        columns = {column["name"] for column in inspector.get_columns("model_versions")}
                 finally:
                     engine.dispose()
                 self.assertIn("races_current", table_names)
                 self.assertIn("model_evaluation_results", table_names)
                 self.assertIn("prediction_run_entries", table_names)
+                self.assertIn("artifact_sha256", columns)
+                self.assertIn("feature_schema_hash", columns)
+                self.assertIn("code_commit_sha", columns)
 
                 command.downgrade(config, "base")
                 engine = create_engine(database_url)
                 try:
-                    table_names = set(inspect(engine).get_table_names())
+                    with engine.connect() as conn:
+                        table_names = set(inspect(conn).get_table_names())
                 finally:
                     engine.dispose()
                 self.assertNotIn("races_current", table_names)

@@ -20,6 +20,12 @@ def _split_csv(value: str, fallback: tuple[str, ...]) -> tuple[str, ...]:
     return items or fallback
 
 
+def _bool_env(value: str | None, fallback: bool) -> bool:
+    if value is None or value == "":
+        return fallback
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class Settings:
     app_env: str
@@ -48,6 +54,8 @@ class Settings:
     privacy_policy_url: str = ""
     terms_of_use_url: str = ""
     data_license_reference: str = ""
+    model_artifact_dir: Path = BASE_DIR / "model_artifacts"
+    require_approved_model_artifact: bool = False
 
     @property
     def is_deployed_environment(self) -> bool:
@@ -80,6 +88,8 @@ class Settings:
                 errors.append("API_AUTH_TOKEN must be a non-placeholder secret with at least 32 characters.")
         if self.max_request_body_bytes < 1024:
             errors.append("MAX_REQUEST_BODY_BYTES must be at least 1024.")
+        if self.require_approved_model_artifact and not self.model_artifact_dir:
+            errors.append("MODEL_ARTIFACT_DIR must be configured when approved model artifacts are required.")
 
         if errors:
             raise RuntimeError("Invalid Horse Predictor configuration: " + " ".join(errors))
@@ -137,4 +147,6 @@ def get_settings() -> Settings:
         privacy_policy_url=os.getenv("PRIVACY_POLICY_URL", ""),
         terms_of_use_url=os.getenv("TERMS_OF_USE_URL", ""),
         data_license_reference=os.getenv("DATA_LICENSE_REFERENCE", ""),
+        model_artifact_dir=Path(os.getenv("MODEL_ARTIFACT_DIR", BASE_DIR / "model_artifacts")),
+        require_approved_model_artifact=_bool_env(os.getenv("REQUIRE_APPROVED_MODEL_ARTIFACT"), deployed),
     )

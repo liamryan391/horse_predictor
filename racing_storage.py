@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from datetime import date, datetime, timedelta, timezone
 from math import isfinite
 from pathlib import Path
@@ -256,10 +257,31 @@ def _model_payload(row: dict[str, Any], metrics: dict[str, float | int | None]) 
         "trainingStart": _iso_value(row.get("training_start")),
         "trainingEnd": _iso_value(row.get("training_end")),
         "artifactUri": row.get("artifact_uri"),
+        "artifactSha256": row.get("artifact_sha256"),
+        "featureSchemaHash": row.get("feature_schema_hash"),
+        "codeCommitSha": row.get("code_commit_sha"),
+        "artifactReady": bool(row.get("artifact_uri") and row.get("artifact_sha256") and row.get("feature_schema_hash")),
         "createdAt": _iso_value(row.get("created_at")),
         "updatedAt": _iso_value(row.get("updated_at")),
         "metrics": metrics,
     }
+
+
+def _feature_schema_hash(
+    feature_columns: list[str],
+    numeric_features: list[str] | None = None,
+    categorical_features: list[str] | None = None,
+) -> str:
+    encoded = json.dumps(
+        {
+            "categorical_features": list(categorical_features or []),
+            "feature_columns": list(feature_columns),
+            "numeric_features": list(numeric_features or []),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _metrics_for_model_ids(conn, model_ids: list[int]) -> dict[int, dict[str, float | int | None]]:
@@ -285,6 +307,9 @@ def record_model_evaluation_snapshot(
     status: str = "candidate",
     name: str | None = None,
     artifact_uri: str | None = None,
+    artifact_sha256: str | None = None,
+    feature_schema_hash: str | None = None,
+    code_commit_sha: str | None = None,
 ) -> dict[str, Any]:
     init_db(database_url)
     engine = get_engine(database_url)
@@ -293,6 +318,11 @@ def record_model_evaluation_snapshot(
     now = utc_now()
     feature_columns = list(getattr(model_result, "feature_columns", []))
     model_name = name or f"logistic-regression-{now.strftime('%Y%m%d%H%M%S')}"
+    schema_hash = feature_schema_hash or _feature_schema_hash(
+        feature_columns,
+        list(getattr(model_result, "numeric_features", [])),
+        list(getattr(model_result, "categorical_features", [])),
+    )
 
     try:
         with engine.begin() as conn:
@@ -305,6 +335,9 @@ def record_model_evaluation_snapshot(
                     "training_start": _as_date(getattr(model_result, "training_start", None)),
                     "training_end": _as_date(getattr(model_result, "training_end", None)),
                     "artifact_uri": artifact_uri,
+                    "artifact_sha256": artifact_sha256,
+                    "feature_schema_hash": schema_hash,
+                    "code_commit_sha": code_commit_sha,
                     "status": status,
                     "created_at": now,
                     "updated_at": now,
@@ -331,6 +364,21 @@ def record_model_evaluation_snapshot(
                 conn.execute(insert(eval_table), metric_records)
 
             row = conn.execute(select(model_table).where(model_table.c.id == model_version_id)).mappings().one()
+            metrics = _metrics_for_model_ids(conn, [model_version_id]).get(model_version_id, {})
+            return _model_payload(dict(row), metrics)
+    finally:
+        engine.dispose()
+
+
+def read_model_version(database_url: str | Path | None, model_version_id: int) -> dict[str, Any] | None:
+    init_db(database_url)
+    engine = get_engine(database_url)
+    model_table = METADATA.tables["model_versions"]
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(select(model_table).where(model_table.c.id == model_version_id)).mappings().first()
+            if not row:
+                return None
             metrics = _metrics_for_model_ids(conn, [model_version_id]).get(model_version_id, {})
             return _model_payload(dict(row), metrics)
     finally:

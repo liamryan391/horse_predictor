@@ -3,7 +3,10 @@ from __future__ import annotations
 import contextvars
 import logging
 import math
+import os
+from pathlib import Path
 import re
+import subprocess
 import time
 import uuid
 from collections import defaultdict, deque
@@ -42,16 +45,26 @@ from api_contracts import (
     SummaryResponse,
     TrendsResponse,
 )
-from prediction_model import build_feature_table, evaluate_model, score_current_races, summarize_entities, train_model
+from prediction_model import (
+    artifact_uri_to_path,
+    build_feature_table,
+    evaluate_model,
+    load_model_artifact,
+    save_model_artifact,
+    score_current_races,
+    summarize_entities,
+    train_model,
+)
 from racing_storage import (
     TABLES,
     approve_model_version,
     ingestion_status,
     read_latest_approved_model_version,
-    read_races,
+    read_model_version,
     read_model_registry,
     read_prediction_run,
     read_prediction_runs,
+    read_races,
     record_model_evaluation_snapshot,
     record_prediction_run,
     seed_database_from_samples,
@@ -75,8 +88,8 @@ REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 
 app = FastAPI(
     title="Horse Predictor API",
-    version="0.5.0",
-    description="Versioned API for race cards, model predictions, ingestion status, and model evaluation.",
+    version="0.6.0",
+    description="Versioned API for race cards, artifact-backed model predictions, ingestion status, and model evaluation.",
     responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 413: {"model": ErrorResponse}, 422: {"model": ErrorResponse}, 429: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(SETTINGS.allowed_hosts))
@@ -250,8 +263,47 @@ def database_summary() -> dict[str, Any]:
     return SETTINGS.database_summary()
 
 
+def current_code_commit_sha() -> str | None:
+    for env_name in ("SOURCE_COMMIT", "GIT_COMMIT", "VERCEL_GIT_COMMIT_SHA", "RENDER_GIT_COMMIT"):
+        value = os.getenv(env_name)
+        if value:
+            return value.strip()[:80]
+
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=Path(__file__).resolve().parent,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()[:80] or None
+
+
 def current_counts() -> dict[str, int]:
     return table_counts(DATABASE_URL)
+
+
+def load_registry_model_artifact(model_record: dict[str, Any]) -> Any:
+    artifact_uri = model_record.get("artifactUri")
+    if not artifact_uri:
+        raise ValueError(f"Model version {model_record['id']} has no persisted artifact URI.")
+
+    artifact_path = artifact_uri_to_path(artifact_uri)
+    artifact_root = SETTINGS.model_artifact_dir.resolve()
+    if not artifact_path.is_relative_to(artifact_root):
+        raise ValueError("Model artifact is outside the configured MODEL_ARTIFACT_DIR.")
+
+    return load_model_artifact(
+        artifact_uri,
+        expected_sha256=model_record.get("artifactSha256"),
+        expected_feature_schema_hash=model_record.get("featureSchemaHash"),
+    )
 
 
 def load_model_bundle() -> tuple[pd.DataFrame, pd.DataFrame, Any, pd.DataFrame]:
@@ -264,6 +316,38 @@ def load_model_bundle() -> tuple[pd.DataFrame, pd.DataFrame, Any, pd.DataFrame]:
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return history_df, current_df, model, history_features
+
+
+def load_serving_model_bundle() -> tuple[pd.DataFrame, pd.DataFrame, Any, pd.DataFrame, dict[str, Any] | None, str]:
+    ensure_seed_data()
+    history_df = read_races(DATABASE_URL, TABLES["historical"])
+    current_df = read_races(DATABASE_URL, TABLES["current"])
+    history_features = build_feature_table(history_df)
+    approved_model = read_latest_approved_model_version(DATABASE_URL)
+
+    if approved_model:
+        artifact_uri = approved_model.get("artifactUri")
+        if artifact_uri:
+            try:
+                model = load_registry_model_artifact(approved_model)
+            except (FileNotFoundError, ValueError) as exc:
+                raise HTTPException(status_code=422, detail=f"Approved model artifact is not loadable: {exc}") from exc
+            return history_df, current_df, model, history_features, approved_model, "artifact"
+
+        if SETTINGS.require_approved_model_artifact:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Approved model version {approved_model['id']} has no persisted artifact URI.",
+            )
+
+    if SETTINGS.require_approved_model_artifact:
+        raise HTTPException(status_code=422, detail="An approved model artifact is required before serving predictions.")
+
+    try:
+        model = train_model(history_features)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return history_df, current_df, model, history_features, None, "in_memory"
 
 
 def normalize_date_filter(value: date | None) -> str | None:
@@ -353,9 +437,18 @@ def build_scored_predictions(
     track: str | None = None,
     horse: str | None = None,
 ) -> pd.DataFrame:
-    _, current_df, model, _ = load_model_bundle()
+    scored_df, _, _ = build_scored_predictions_with_model(race_date=race_date, track=track, horse=horse)
+    return scored_df
+
+
+def build_scored_predictions_with_model(
+    race_date: date | None = None,
+    track: str | None = None,
+    horse: str | None = None,
+) -> tuple[pd.DataFrame, dict[str, Any] | None, str]:
+    _, current_df, model, _, model_record, serving_mode = load_serving_model_bundle()
     scored_df = score_current_races(model, current_df)
-    return filter_race_rows(scored_df, track=track, race_date=race_date, horse=horse)
+    return filter_race_rows(scored_df, track=track, race_date=race_date, horse=horse), model_record, serving_mode
 
 
 def require_admin(credentials: HTTPAuthorizationCredentials | None = Depends(admin_auth)) -> None:
@@ -382,7 +475,7 @@ def ready() -> dict[str, Any]:
     message = None
     if database_ready:
         try:
-            load_model_bundle()
+            load_serving_model_bundle()
             model_ready = True
         except HTTPException as exc:
             message = str(exc.detail)
@@ -551,10 +644,13 @@ def entity_profile(
 
 @router.get("/model", response_model=ModelStatusResponse)
 def model_status() -> dict[str, Any]:
-    _, _, model, history_features = load_model_bundle()
+    _, _, model, history_features, model_record, serving_mode = load_serving_model_bundle()
     evaluation = evaluate_model(history_features)
     return {
         "requestId": request_id(),
+        "modelVersionId": model_record.get("id") if model_record else None,
+        "servingMode": serving_mode,
+        "artifactUri": model_record.get("artifactUri") if model_record else None,
         "trainingRows": model.training_rows,
         "winnerRate": model.winner_rate,
         "trainingStart": model.training_start,
@@ -585,12 +681,32 @@ def model_registry(
 def capture_model_evaluation(_: None = Depends(require_admin)) -> dict[str, Any]:
     _, _, model, history_features = load_model_bundle()
     evaluation = evaluate_model(history_features)
-    model_record = record_model_evaluation_snapshot(DATABASE_URL, model, evaluation)
+    artifact = save_model_artifact(model, SETTINGS.model_artifact_dir, code_commit_sha=current_code_commit_sha())
+    model_record = record_model_evaluation_snapshot(
+        DATABASE_URL,
+        model,
+        evaluation,
+        artifact_uri=artifact.uri,
+        artifact_sha256=artifact.sha256,
+        feature_schema_hash=artifact.feature_schema_hash,
+        code_commit_sha=artifact.code_commit_sha,
+    )
     return {"requestId": request_id(), "model": model_record}
 
 
 @router.post("/admin/model/{model_version_id}/approve", response_model=ModelSnapshotResponse)
 def approve_model(model_version_id: int, _: None = Depends(require_admin)) -> dict[str, Any]:
+    candidate = read_model_version(DATABASE_URL, model_version_id)
+    if not candidate:
+        raise HTTPException(status_code=404, detail=f"Model version {model_version_id} was not found.")
+    if not candidate.get("artifactUri"):
+        raise HTTPException(status_code=422, detail=f"Model version {model_version_id} has no persisted artifact to approve.")
+
+    try:
+        load_registry_model_artifact(candidate)
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=f"Model version {model_version_id} artifact failed integrity checks: {exc}") from exc
+
     model_record = approve_model_version(DATABASE_URL, model_version_id)
     if not model_record:
         raise HTTPException(status_code=404, detail=f"Model version {model_version_id} was not found.")
@@ -605,17 +721,20 @@ def capture_prediction_run(
     horse: Annotated[str | None, Query()] = None,
     require_approved_model: Annotated[bool, Query()] = False,
 ) -> dict[str, Any]:
-    scored_df = build_scored_predictions(race_date=race_date, track=track, horse=horse)
+    scored_df, model_record, serving_mode = build_scored_predictions_with_model(race_date=race_date, track=track, horse=horse)
     scored_df = sort_frame(scored_df, "suggested_rank", "asc")
     if scored_df.empty:
         raise HTTPException(status_code=422, detail="No predictions matched the requested snapshot filters.")
 
-    approved_model = read_latest_approved_model_version(DATABASE_URL)
-    if require_approved_model and not approved_model:
-        raise HTTPException(status_code=422, detail="An approved model version is required before recording this prediction run.")
+    if require_approved_model and (not model_record or serving_mode != "artifact"):
+        raise HTTPException(status_code=422, detail="An approved model artifact is required before recording this prediction run.")
 
-    model_version_id = int(approved_model["id"]) if approved_model else None
-    notes = "linked to latest approved model metadata" if approved_model else "scored with current in-memory model; no approved model metadata linked"
+    model_version_id = int(model_record["id"]) if model_record else None
+    notes = (
+        "scored with approved model artifact"
+        if model_record
+        else "scored with current in-memory model; no approved model artifact linked"
+    )
     run = record_prediction_run(DATABASE_URL, scored_df, source="api", model_version_id=model_version_id, notes=notes)
     return {"requestId": request_id(), **run}
 

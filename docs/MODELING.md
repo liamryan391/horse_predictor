@@ -36,6 +36,12 @@ These features are based on race-card information that should be knowable before
 
 The sample dataset is intentionally tiny, so its metrics are only a wiring smoke test. Provider history will make the evaluation meaningful.
 
+## Artifact Serving
+
+`POST /api/v1/admin/model/evaluation` trains the current candidate and writes a serialized `ModelResult` artifact with feature-schema metadata. `POST /api/v1/admin/model/{model_version_id}/approve` verifies the artifact checksum and feature-schema hash before making it the approved serving model.
+
+Prediction routes load the latest approved artifact when one exists. Local development can fall back to in-memory training, while staging and production should set `REQUIRE_APPROVED_MODEL_ARTIFACT=true`.
+
 ## API
 
 Model evaluation is returned by:
@@ -45,4 +51,4 @@ GET /api/model
 GET /api/model/evaluation
 ```
 
-The React Race Lab and Streamlit app both read the shared model module so leakage checks and evaluation logic stay consistent.
+The React Race Lab and Streamlit app both read the shared model module so leakage checks, artifact save/load checks, and evaluation logic stay consistent.

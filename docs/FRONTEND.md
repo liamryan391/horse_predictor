@@ -23,7 +23,7 @@ The workspace combines:
 - prediction rankings
 - runner comparison
 - model evaluation panel
-- model registry and recent prediction-run tables
+- model registry with artifact readiness and recent prediction-run tables
 - trend tables
 - dark and light themes
 - loading skeletons and retryable API errors

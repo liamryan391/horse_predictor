@@ -35,6 +35,15 @@ The initial normalized schema adds:
 
 The normalized tables give future phases a place to store provider identifiers, race-card entities, odds snapshots, model versions, prediction run headers, runner-level prediction entries, evaluation metrics, and user bet history without overloading the flat model tables.
 
+`model_versions` also stores artifact-serving metadata:
+
+- `artifact_uri`
+- `artifact_sha256`
+- `feature_schema_hash`
+- `code_commit_sha`
+
+The database stores artifact references and integrity values; the model artifact files themselves live under `MODEL_ARTIFACT_DIR` or equivalent durable storage.
+
 ## Migrations
 
 Run migrations after installing dependencies:
@@ -49,7 +58,7 @@ Linux/macOS:
 .venv/bin/python -m alembic upgrade head
 ```
 
-The first migration is intentionally safe against an existing local SQLite database. It creates missing tables with `checkfirst=True` and records the Alembic version.
+The first migration is intentionally safe against an existing local SQLite database. It creates missing tables with `checkfirst=True` and records the Alembic version. Later migrations add job locks, prediction-run entries, and model artifact integrity columns.
 
 ## Ingestion Writes
 

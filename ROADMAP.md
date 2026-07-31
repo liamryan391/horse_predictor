@@ -234,7 +234,7 @@ Current inspection: the evaluator now reports a basic fixed-stake value-bet prof
 - Add retraining schedules.
 - Never describe automatic retraining as "self-improvement" unless promotion is governed by validated metrics.
 
-Current inspection: model metrics are visible in the API, React Race Lab, and Streamlit model tab. Persisted model artifacts, promotion gates, and retraining schedules remain future work.
+Current inspection: model metrics are visible in the API, React Race Lab, and Streamlit model tab. Phase 12 now persists approved model artifacts for serving. Promotion gates and retraining schedules remain future work.
 
 ## Phase 5: Backend API
 
@@ -448,11 +448,10 @@ Current inspection: `POST /api/v1/admin/model/{model_version_id}/approve` marks 
 
 ### 10.3 Future Model Lifecycle
 
-- Persist serialized model artifacts.
 - Compare candidates against the current approved model before promotion.
 - Add scheduled retraining with guarded promotion.
 
-Current inspection: Phase 10 records model metadata and metrics, but trained artifacts, candidate-vs-approved comparison, and scheduled retraining remain future work.
+Current inspection: Phase 10 records model metadata and metrics. Phase 12 now persists trained artifacts and serves from approved artifacts, while candidate-vs-approved comparison and scheduled retraining remain future work.
 
 ## Phase 11: Prediction Operations
 
@@ -476,15 +475,14 @@ Current inspection: `/api/v1/prediction-runs` lists run summaries, `/api/v1/pred
 
 ### 11.3 Future Prediction Lifecycle
 
-- Persist serialized model artifacts and score with the approved artifact.
 - Add scheduled prediction snapshot jobs after ingestion refreshes.
 - Add drift checks comparing live prediction distributions with holdout expectations.
 - Add prediction-run cleanup or archival policies once production volume is known.
 
-Current inspection: Phase 11 persists scoring snapshots, but artifact-backed scoring, scheduled scoring, drift monitoring, and retention policies remain future work.
+Current inspection: Phase 11 persists scoring snapshots. Phase 12 now links prediction-run capture to approved artifact serving when required, while scheduled scoring, drift monitoring, and retention policies remain future work.
 
 ## Continued Planning
 
-The next build plan continues in `ROADMAP02.md`, starting with Phase 12: Artifact-Backed Model Serving.
+The next build plan continues in `ROADMAP02.md`. Phase 12: Artifact-Backed Model Serving is implemented; the next planned stage is Phase 13: Data Enrichment And Provider Depth.
 
 Longer-term product, data, modelling, governance, and monitoring ideas are captured in `FUTURE_ROADMAP.md`.

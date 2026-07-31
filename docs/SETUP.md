@@ -36,6 +36,8 @@ Important settings:
 - `BACKEND_CORS_ORIGINS`: comma-separated frontend origins allowed by FastAPI.
 - `VITE_API_BASE_URL`: frontend API base URL for deployed builds.
 - `HORSE_API_PROVIDER`: `sample`, `generic`, `theracingapi`, or `ourhub`.
+- `MODEL_ARTIFACT_DIR`: where admin model snapshots write serialized serving artifacts.
+- `REQUIRE_APPROVED_MODEL_ARTIFACT`: set to `true` in staging/production so prediction serving requires a loadable approved artifact.
 
 The backend validates staging/production config at startup. In deployed environments, SQLite is rejected so production work does not accidentally run against a local file database.
 

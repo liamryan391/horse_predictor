@@ -101,6 +101,9 @@ type Meeting = {
 
 type ModelStatus = {
   requestId: string;
+  modelVersionId: number | null;
+  servingMode: string;
+  artifactUri: string | null;
   trainingRows: number;
   winnerRate: number;
   trainingStart: string | null;
@@ -120,6 +123,10 @@ type ModelRegistryRow = {
   trainingStart: string | null;
   trainingEnd: string | null;
   artifactUri: string | null;
+  artifactSha256: string | null;
+  featureSchemaHash: string | null;
+  codeCommitSha: string | null;
+  artifactReady: boolean;
   createdAt: string | null;
   updatedAt: string | null;
   metrics: EvaluationMetrics;
@@ -625,6 +632,7 @@ function EvaluationPanel({ evaluation, model }: { evaluation: ModelEvaluation; m
       <div className="evaluation-grid">
         <Metric label="Training rows" value={formatInteger(model.trainingRows)} />
         <Metric label="Features" value={formatInteger(model.featureCount)} />
+        <Metric label="Serving" value={model.servingMode === "artifact" ? `Artifact #${model.modelVersionId ?? "-"}` : "In-memory"} />
         <Metric label="Runner log loss" value={formatNumber(metrics.runner_log_loss, 3)} />
         <Metric label="Market log loss" value={formatNumber(metrics.market_log_loss, 3)} />
         <Metric label="Calibration gap" value={formatPercent(metrics.calibration_mae)} />
@@ -654,6 +662,7 @@ function ModelRegistryTable({ rows }: { rows: ModelRegistryRow[] }) {
           <thead>
             <tr>
               <th>Status</th>
+              <th>Artifact</th>
               <th>Name</th>
               <th>Training window</th>
               <th>Top-pick holdout</th>
@@ -667,6 +676,12 @@ function ModelRegistryTable({ rows }: { rows: ModelRegistryRow[] }) {
               <tr key={row.id}>
                 <td>
                   <span className={`status-pill ${row.status}`}>{row.status}</span>
+                </td>
+                <td>
+                  <span className={`status-pill ${row.artifactReady ? "approved" : "superseded"}`}>
+                    {row.artifactReady ? "Ready" : "Missing"}
+                  </span>
+                  <span className="table-subtext">{row.artifactSha256 ? `sha ${row.artifactSha256.slice(0, 8)}` : "-"}</span>
                 </td>
                 <td>
                   <strong>{row.name}</strong>
@@ -683,7 +698,7 @@ function ModelRegistryTable({ rows }: { rows: ModelRegistryRow[] }) {
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={7}>No persisted model snapshots yet.</td>
+                <td colSpan={8}>No persisted model snapshots yet.</td>
               </tr>
             )}
           </tbody>

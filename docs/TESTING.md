@@ -20,6 +20,7 @@ The suite covers:
 - Alembic upgrade/downgrade roundtrip
 - sample data quality gates
 - model calibration and market-baseline checks
+- model artifact save/load determinism and artifact-backed API serving
 
 ## Frontend
 
@@ -53,6 +54,7 @@ Run the production-readiness API smoke check against a live API:
 ```
 
 Add `--require-approved-model` for staging or production once a model version has been recorded and approved.
+Add `--require-approved-artifact` when acceptance should also prove that the approved model has artifact integrity metadata.
 Add `--require-prediction-run` when acceptance should also prove that at least one scored race-card snapshot has been persisted.
 
 When `agent-browser` is available on PATH, use it for the visual pass:

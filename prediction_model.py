@@ -1,8 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
+import hashlib
+import json
 from math import ceil, isfinite
+from pathlib import Path
+import pickle
+import re
 from typing import Any, Dict, List
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 import numpy as np
 import pandas as pd
@@ -19,6 +27,7 @@ RACE_GROUP_COLUMNS = ["race_date", "track", "distance"]
 RESULT_LEAKAGE_COLUMNS = {"finishing_position", "is_winner"}
 MODEL_EXCLUDED_COLUMNS = RESULT_LEAKAGE_COLUMNS | {"race_date"}
 EVALUATION_EPSILON = 1e-6
+MODEL_ARTIFACT_FORMAT = "horse-predictor-model-artifact-v1"
 
 
 @dataclass
@@ -31,6 +40,15 @@ class ModelResult:
     winner_rate: float
     training_start: str | None
     training_end: str | None
+
+
+@dataclass
+class ModelArtifactRef:
+    uri: str
+    sha256: str
+    feature_schema_hash: str
+    code_commit_sha: str | None
+    metadata: Dict[str, Any]
 
 
 @dataclass
@@ -70,6 +88,148 @@ def clean_metric(value) -> float | int | None:
         value = float(value)
         return value if isfinite(value) else None
     return value
+
+
+def feature_schema_payload(
+    feature_columns: list[str],
+    numeric_features: list[str] | None = None,
+    categorical_features: list[str] | None = None,
+) -> dict[str, list[str]]:
+    return {
+        "feature_columns": list(feature_columns),
+        "numeric_features": list(numeric_features or []),
+        "categorical_features": list(categorical_features or []),
+    }
+
+
+def feature_schema_hash(
+    feature_columns: list[str],
+    numeric_features: list[str] | None = None,
+    categorical_features: list[str] | None = None,
+) -> str:
+    payload = feature_schema_payload(feature_columns, numeric_features, categorical_features)
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def model_feature_schema_hash(model_result: ModelResult) -> str:
+    return feature_schema_hash(
+        model_result.feature_columns,
+        model_result.numeric_features,
+        model_result.categorical_features,
+    )
+
+
+def model_artifact_metadata(model_result: ModelResult, code_commit_sha: str | None = None) -> dict[str, Any]:
+    schema_hash = model_feature_schema_hash(model_result)
+    return {
+        "format": MODEL_ARTIFACT_FORMAT,
+        "algorithm": "LogisticRegression",
+        "feature_columns": model_result.feature_columns,
+        "numeric_features": model_result.numeric_features,
+        "categorical_features": model_result.categorical_features,
+        "feature_schema_hash": schema_hash,
+        "training_rows": model_result.training_rows,
+        "winner_rate": model_result.winner_rate,
+        "training_start": model_result.training_start,
+        "training_end": model_result.training_end,
+        "code_commit_sha": code_commit_sha,
+        "created_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+    }
+
+
+def _safe_artifact_stem(value: str) -> str:
+    stem = re.sub(r"[^A-Za-z0-9_.-]+", "-", value.strip()).strip(".-")
+    return stem[:120] or "model-artifact"
+
+
+def _unique_artifact_path(artifact_dir: Path, stem: str, suffix: str = ".pkl") -> Path:
+    path = artifact_dir / f"{stem}{suffix}"
+    if not path.exists():
+        return path
+
+    for counter in range(1, 1000):
+        candidate = artifact_dir / f"{stem}-{counter}{suffix}"
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError(f"Could not choose a unique model artifact filename for {stem}.")
+
+
+def artifact_uri_to_path(uri: str) -> Path:
+    parsed = urlparse(uri)
+    if parsed.scheme == "file":
+        return Path(url2pathname(parsed.path)).resolve()
+    if parsed.scheme:
+        raise ValueError(f"Unsupported model artifact URI scheme: {parsed.scheme}")
+    return Path(uri).resolve()
+
+
+def save_model_artifact(
+    model_result: ModelResult,
+    artifact_dir: str | Path,
+    name: str | None = None,
+    code_commit_sha: str | None = None,
+) -> ModelArtifactRef:
+    artifact_path = Path(artifact_dir)
+    artifact_path.mkdir(parents=True, exist_ok=True)
+    metadata = model_artifact_metadata(model_result, code_commit_sha=code_commit_sha)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    base_name = name or "logistic-regression"
+    stem = _safe_artifact_stem(f"{base_name}-{timestamp}-{metadata['feature_schema_hash'][:12]}")
+    path = _unique_artifact_path(artifact_path, stem)
+
+    payload = {
+        "format": MODEL_ARTIFACT_FORMAT,
+        "metadata": metadata,
+        "model_result": model_result,
+    }
+    blob = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
+    artifact_sha256 = hashlib.sha256(blob).hexdigest()
+    path.write_bytes(blob)
+
+    sidecar_metadata = {**metadata, "artifact_sha256": artifact_sha256, "artifact_uri": path.resolve().as_uri()}
+    path.with_suffix(".json").write_text(json.dumps(sidecar_metadata, indent=2, sort_keys=True), encoding="utf-8")
+
+    return ModelArtifactRef(
+        uri=path.resolve().as_uri(),
+        sha256=artifact_sha256,
+        feature_schema_hash=metadata["feature_schema_hash"],
+        code_commit_sha=code_commit_sha,
+        metadata=sidecar_metadata,
+    )
+
+
+def load_model_artifact(
+    artifact_uri: str,
+    expected_sha256: str | None = None,
+    expected_feature_schema_hash: str | None = None,
+) -> ModelResult:
+    path = artifact_uri_to_path(artifact_uri)
+    if not path.exists():
+        raise FileNotFoundError(f"Model artifact was not found: {artifact_uri}")
+
+    blob = path.read_bytes()
+    artifact_sha256 = hashlib.sha256(blob).hexdigest()
+    if expected_sha256 and artifact_sha256 != expected_sha256:
+        raise ValueError("Model artifact checksum does not match registry metadata.")
+
+    payload = pickle.loads(blob)
+    if not isinstance(payload, dict) or payload.get("format") != MODEL_ARTIFACT_FORMAT:
+        raise ValueError("Model artifact format is not supported.")
+
+    model_result = payload.get("model_result")
+    if not isinstance(model_result, ModelResult):
+        raise ValueError("Model artifact does not contain a valid ModelResult.")
+
+    actual_schema_hash = model_feature_schema_hash(model_result)
+    artifact_schema_hash = (payload.get("metadata") or {}).get("feature_schema_hash")
+    if artifact_schema_hash and artifact_schema_hash != actual_schema_hash:
+        raise ValueError("Model artifact feature schema metadata does not match its model payload.")
+    if expected_feature_schema_hash and expected_feature_schema_hash != actual_schema_hash:
+        raise ValueError("Model artifact feature schema does not match registry metadata.")
+
+    assert_no_leakage(model_result.feature_columns)
+    return model_result
 
 
 def coerce_race_frame(df: pd.DataFrame) -> pd.DataFrame:

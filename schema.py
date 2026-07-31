@@ -285,6 +285,9 @@ def add_normalized_tables(metadata: MetaData) -> None:
         Column("training_start", Date),
         Column("training_end", Date),
         Column("artifact_uri", String(512)),
+        Column("artifact_sha256", String(64)),
+        Column("feature_schema_hash", String(64)),
+        Column("code_commit_sha", String(80)),
         Column("status", String(80), nullable=False, default="candidate"),
         *timestamp_columns(),
     )

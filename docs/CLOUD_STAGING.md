@@ -92,12 +92,14 @@ The summary endpoint returns `dataFreshness.status`, `ageHours`, and `maxAgeHour
 - Frontend static build serves `/health`.
 - Managed MySQL connection works.
 - `alembic upgrade head` reaches the latest revision.
-- `/api/v1/ready` returns `ok`.
+- `/api/v1/health` returns `ok` before model approval.
 - `/api/v1/safeguards` returns responsible-use, licensing, privacy, and terms notices.
-- A candidate model snapshot can be recorded through `POST /api/v1/admin/model/evaluation`.
-- The reviewed candidate can be approved through `POST /api/v1/admin/model/{model_version_id}/approve`.
+- A candidate model snapshot and artifact can be recorded through `POST /api/v1/admin/model/evaluation`.
+- The reviewed candidate can be approved through `POST /api/v1/admin/model/{model_version_id}/approve` after artifact checksum and feature-schema checks pass.
+- `/api/v1/ready` returns `ok` after artifact-backed model approval.
 - A prediction snapshot can be recorded through `POST /api/v1/admin/prediction-runs?require_approved_model=true` after model approval.
-- `python scripts/production-readiness-check.py --base-url <api-url>` passes.
+- `MODEL_ARTIFACT_DIR` should point at durable storage; the staging compose file mounts `/app/model_artifacts` as a named volume.
+- `python scripts/production-readiness-check.py --base-url <api-url> --require-approved-artifact` passes.
 - Ingestion worker records a successful run.
 - Frontend can load meetings, race cards, predictions, model evaluation, and trends.
 - HTTPS domain and CORS origins match exactly.

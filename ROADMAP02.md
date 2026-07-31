@@ -42,6 +42,8 @@ Goal: stop retraining inside each scoring path and serve predictions from an app
 - Load approved artifacts for scoring instead of retraining in request handlers.
 - Add artifact integrity checks before approval.
 
+Current inspection: `POST /api/v1/admin/model/evaluation` now writes a serialized model artifact under `MODEL_ARTIFACT_DIR`, stores artifact URI/checksum/schema/commit metadata in `model_versions`, and keeps artifact files out of git through `model_artifacts/`.
+
 ### 12.2 Champion Model Runtime
 
 - Add a `champion` model lookup path that resolves the current approved model.
@@ -49,11 +51,15 @@ Goal: stop retraining inside each scoring path and serve predictions from an app
 - Add a startup readiness failure when production has no approved artifact.
 - Add rollback support to re-point serving to a prior approved artifact.
 
+Current inspection: prediction scoring now uses the latest approved artifact when available. `REQUIRE_APPROVED_MODEL_ARTIFACT=true` makes readiness and prediction serving fail without a loadable approved artifact. Rollback is supported by approving a prior artifact-backed model version.
+
 ### 12.3 Validation
 
 - Test artifact save/load roundtrips.
 - Test prediction determinism before and after artifact reload.
 - Test rejection of feature-schema mismatches.
+
+Current inspection: tests now cover artifact save/load determinism, registry artifact metadata, artifact-backed model approval, prediction-run linkage to the approved artifact, and Alembic upgrade/downgrade coverage for artifact metadata columns.
 
 ## Phase 13: Data Enrichment And Provider Depth
 
@@ -178,6 +184,6 @@ Goal: turn the current manual validation list into repeatable automation.
 
 ## Recommended Next Phase
 
-Start with Phase 12: Artifact-Backed Model Serving.
+Start with Phase 13: Data Enrichment And Provider Depth.
 
-Reason: Phase 10 and Phase 11 created the metadata and prediction-run audit trail, but scoring still trains from the current database at request time. Persisted artifacts are the next structural step because they make prediction runs reproducible and make model approval meaningful in production.
+Reason: Phase 12 now makes model approval meaningful in production by serving from persisted artifacts. The next quality jump should come from better licensed racing context, provider depth, field coverage, weather/going enrichment, and data-quality gates before adding more complex product surfaces.

@@ -57,6 +57,8 @@ Seed the local database:
 .\.venv\Scripts\python.exe data_pipeline.py --provider sample
 ```
 
+Model artifacts are written to `model_artifacts/` by default when an admin records a model evaluation snapshot. The directory is ignored by git.
+
 Install frontend dependencies:
 
 ```powershell
@@ -165,5 +167,5 @@ See [docs/FRONTEND.md](docs/FRONTEND.md) for the professional workspace, bet jou
 See [docs/TESTING.md](docs/TESTING.md) for automated backend, data/model, frontend utility, and browser smoke checks.
 See [docs/CLOUD_STAGING.md](docs/CLOUD_STAGING.md) for staging deployment, migration, ingestion worker, and observability notes.
 See [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) for security, safeguards, launch acceptance, and rollback gates.
-See [docs/MODEL_OPERATIONS.md](docs/MODEL_OPERATIONS.md) for persisted model snapshots, approval, and registry workflow.
+See [docs/MODEL_OPERATIONS.md](docs/MODEL_OPERATIONS.md) for persisted model artifacts, approval, and registry workflow.
 See [docs/PREDICTION_OPERATIONS.md](docs/PREDICTION_OPERATIONS.md) for persisted prediction-run snapshots and scoring audit workflow.

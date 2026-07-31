@@ -19,7 +19,7 @@ GET /api/v1/prediction-runs/{prediction_run_id}
 Each run records:
 
 - prediction run id
-- linked approved model version id when one exists
+- linked approved model version id when scoring used an approved artifact
 - run timestamp
 - source
 - runner count
@@ -49,7 +49,7 @@ Invoke-WebRequest `
   "http://127.0.0.1:8000/api/v1/admin/prediction-runs?track=York"
 ```
 
-For staging or production, require approved model metadata before the run is recorded:
+For staging or production, require an approved model artifact before the run is recorded:
 
 ```powershell
 Invoke-WebRequest `
@@ -67,11 +67,11 @@ Production acceptance can require at least one persisted prediction run:
 .\.venv\Scripts\python.exe scripts\production-readiness-check.py `
   --base-url https://horse-predictor-api.example.com `
   --require-approved-model `
+  --require-approved-artifact `
   --require-prediction-run
 ```
 
 ## Current Limits
 
-- The prediction run links to approved model metadata when available, but the scoring model is still trained in process from the current database.
-- Serialized model artifacts remain future work.
 - Scheduled scoring jobs and drift monitoring remain future work.
+- Prediction-run cleanup or archival policy remains future work once production volume is known.

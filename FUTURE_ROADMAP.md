@@ -43,7 +43,7 @@ Once artifact-backed serving is stable, the modelling roadmap can move beyond th
 Future ideas:
 
 - Add candidate model families such as gradient boosting, calibrated classifiers, and ranking models.
-- Compare candidates against the currently approved champion before promotion.
+- Compare candidates against the currently approved artifact-backed champion before promotion.
 - Add calibration plots, Brier score, expected calibration error, and rank-based metrics.
 - Add race-level cross-validation so leakage between runners in the same race is controlled.
 - Add feature stores or generated feature snapshots if provider data grows beyond simple tables.
@@ -143,7 +143,7 @@ These leads are worth revisiting when planning later phases:
 The strongest future investments are:
 
 1. Better data depth with clear licensing.
-2. Reproducible model artifacts and champion/rollback serving.
+2. Managed artifact storage, champion comparison, and scheduled retraining.
 3. Race detail UX with transparent runner explanations.
 4. Server-side journal linked to prediction runs and results.
 5. Monitoring for data freshness, drift, and model-quality regression.
