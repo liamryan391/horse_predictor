@@ -154,6 +154,7 @@ Optional model features:
 This is decision-support software, not guaranteed betting advice. Model quality depends on the amount, accuracy, and freshness of historical results. For production, add authentication, managed hosting, larger provider history, and governed model promotion.
 
 See [ROADMAP.md](ROADMAP.md) for the planned path from prototype to production-ready platform.
+See [ROADMAP02.md](ROADMAP02.md) for the next build roadmap after Phase 11 and [FUTURE_ROADMAP.md](FUTURE_ROADMAP.md) for longer-term development ideas.
 See [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) for imported project context and [docs/WORKFLOW.md](docs/WORKFLOW.md) for the branch and PR workflow.
 See [docs/SETUP.md](docs/SETUP.md) for Windows, Linux/macOS, Docker, and configuration setup.
 See [docs/DATABASE.md](docs/DATABASE.md) for schema, migration, and ingestion-write notes.

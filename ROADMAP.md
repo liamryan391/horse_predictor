@@ -482,3 +482,9 @@ Current inspection: `/api/v1/prediction-runs` lists run summaries, `/api/v1/pred
 - Add prediction-run cleanup or archival policies once production volume is known.
 
 Current inspection: Phase 11 persists scoring snapshots, but artifact-backed scoring, scheduled scoring, drift monitoring, and retention policies remain future work.
+
+## Continued Planning
+
+The next build plan continues in `ROADMAP02.md`, starting with Phase 12: Artifact-Backed Model Serving.
+
+Longer-term product, data, modelling, governance, and monitoring ideas are captured in `FUTURE_ROADMAP.md`.
