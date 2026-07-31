@@ -301,6 +301,32 @@ def add_normalized_tables(metadata: MetaData) -> None:
     )
 
     Table(
+        "prediction_run_entries",
+        metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("prediction_run_id", Integer, ForeignKey("prediction_runs.id"), nullable=False),
+        Column("race_date", Date),
+        Column("track", String(120)),
+        Column("distance", Float),
+        Column("surface", String(80)),
+        Column("horse", String(160)),
+        Column("jockey", String(160)),
+        Column("owner", String(160)),
+        Column("trainer", String(160)),
+        Column("market_odds", Float),
+        Column("win_probability", Float),
+        Column("model_odds", Float),
+        Column("value_edge", Float),
+        Column("suggested_rank", Float),
+        Column("field_size", Float),
+        Column("odds_rank", Float),
+        Column("raw_features", Text),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        Index("ix_prediction_run_entries_run_rank", "prediction_run_id", "suggested_rank"),
+        Index("ix_prediction_run_entries_date_track", "race_date", "track"),
+    )
+
+    Table(
         "model_evaluation_results",
         metadata,
         Column("id", Integer, primary_key=True, autoincrement=True),

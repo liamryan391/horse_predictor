@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime, timedelta, timezone
+from math import isfinite
 from pathlib import Path
 from typing import Any, Dict
 
@@ -53,6 +54,41 @@ def _iso_value(value) -> str | None:
     if value is None:
         return None
     return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
+
+def _float_or_none(value) -> float | None:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    return numeric if isfinite(numeric) else None
+
+
+def _json_safe_value(value) -> Any:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if hasattr(value, "item"):
+        try:
+            value = value.item()
+        except (TypeError, ValueError):
+            pass
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    if isinstance(value, (float, int)):
+        return value if isfinite(float(value)) else None
+    return value
 
 
 def get_engine(database_url: str | Path | None = None) -> Engine:
@@ -348,6 +384,250 @@ def approve_model_version(database_url: str | Path | None, model_version_id: int
             updated = conn.execute(select(model_table).where(model_table.c.id == model_version_id)).mappings().one()
             metrics = _metrics_for_model_ids(conn, [model_version_id]).get(model_version_id, {})
             return _model_payload(dict(updated), metrics)
+    finally:
+        engine.dispose()
+
+
+def read_latest_approved_model_version(database_url: str | Path | None) -> dict[str, Any] | None:
+    init_db(database_url)
+    engine = get_engine(database_url)
+    model_table = METADATA.tables["model_versions"]
+    try:
+        with engine.connect() as conn:
+            row = (
+                conn.execute(
+                    select(model_table)
+                    .where(model_table.c.status == "approved")
+                    .order_by(model_table.c.id.desc())
+                    .limit(1)
+                )
+                .mappings()
+                .first()
+            )
+            if not row:
+                return None
+            metrics = _metrics_for_model_ids(conn, [int(row["id"])]).get(int(row["id"]), {})
+            return _model_payload(dict(row), metrics)
+    finally:
+        engine.dispose()
+
+
+def _prediction_feature_payload(row: dict[str, Any]) -> dict[str, Any]:
+    feature_columns = [
+        "race_month",
+        "race_day_of_week",
+        "implied_probability",
+        "field_size",
+        "odds_rank",
+        "relative_speed_rating",
+        "relative_class_rating",
+        "draw",
+        "speed_rating",
+        "class_rating",
+        "days_since_last_run",
+        "horse_age",
+        "horse_weight",
+        "weather",
+    ]
+    return {column: _json_safe_value(row.get(column)) for column in feature_columns if column in row}
+
+
+def _prediction_entry_record(prediction_run_id: int, row: dict[str, Any], now: datetime) -> dict[str, Any]:
+    return {
+        "prediction_run_id": prediction_run_id,
+        "race_date": _as_date(_json_safe_value(row.get("race_date"))),
+        "track": _json_safe_value(row.get("track")),
+        "distance": _float_or_none(row.get("distance")),
+        "surface": _json_safe_value(row.get("surface")),
+        "horse": _json_safe_value(row.get("horse")),
+        "jockey": _json_safe_value(row.get("jockey")),
+        "owner": _json_safe_value(row.get("owner")),
+        "trainer": _json_safe_value(row.get("trainer")),
+        "market_odds": _float_or_none(row.get("odds")),
+        "win_probability": _float_or_none(row.get("win_probability")),
+        "model_odds": _float_or_none(row.get("model_odds")),
+        "value_edge": _float_or_none(row.get("value_edge")),
+        "suggested_rank": _float_or_none(row.get("suggested_rank")),
+        "field_size": _float_or_none(row.get("field_size")),
+        "odds_rank": _float_or_none(row.get("odds_rank")),
+        "raw_features": json.dumps(_prediction_feature_payload(row), separators=(",", ":"), allow_nan=False),
+        "created_at": now,
+    }
+
+
+def _prediction_entry_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "race_date": _iso_value(row.get("race_date")),
+        "track": row.get("track"),
+        "distance": row.get("distance"),
+        "surface": row.get("surface"),
+        "horse": row.get("horse"),
+        "jockey": row.get("jockey"),
+        "owner": row.get("owner"),
+        "trainer": row.get("trainer"),
+        "odds": row.get("market_odds"),
+        "win_probability": row.get("win_probability"),
+        "model_odds": row.get("model_odds"),
+        "value_edge": row.get("value_edge"),
+        "suggested_rank": row.get("suggested_rank"),
+        "field_size": row.get("field_size"),
+        "odds_rank": row.get("odds_rank"),
+    }
+
+
+def _prediction_run_payload(conn, row: dict[str, Any]) -> dict[str, Any]:
+    entry_table = METADATA.tables["prediction_run_entries"]
+    run_id = int(row["id"])
+    runner_count = int(
+        conn.execute(
+            select(func.count()).select_from(entry_table).where(entry_table.c.prediction_run_id == run_id)
+        ).scalar_one()
+    )
+    top_entry = (
+        conn.execute(
+            select(entry_table)
+            .where(entry_table.c.prediction_run_id == run_id)
+            .order_by(entry_table.c.suggested_rank.asc(), entry_table.c.win_probability.desc(), entry_table.c.id.asc())
+            .limit(1)
+        )
+        .mappings()
+        .first()
+    )
+    return {
+        "id": run_id,
+        "modelVersionId": row.get("model_version_id"),
+        "raceId": row.get("race_id"),
+        "runAt": _iso_value(row.get("run_at")),
+        "source": row.get("source"),
+        "notes": row.get("notes"),
+        "runnerCount": runner_count,
+        "topRunner": top_entry.get("horse") if top_entry else None,
+        "topWinProbability": top_entry.get("win_probability") if top_entry else None,
+        "topValueEdge": top_entry.get("value_edge") if top_entry else None,
+    }
+
+
+def record_prediction_run(
+    database_url: str | Path | None,
+    predictions_df: pd.DataFrame,
+    source: str = "api",
+    model_version_id: int | None = None,
+    notes: str | None = None,
+) -> dict[str, Any]:
+    if predictions_df.empty:
+        raise ValueError("No predictions are available to record.")
+
+    init_db(database_url)
+    engine = get_engine(database_url)
+    run_table = METADATA.tables["prediction_runs"]
+    entry_table = METADATA.tables["prediction_run_entries"]
+    now = utc_now()
+    row_records = [record for record in predictions_df.to_dict(orient="records")]
+
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(
+                insert(run_table),
+                {
+                    "model_version_id": model_version_id,
+                    "race_id": None,
+                    "run_at": now,
+                    "source": source,
+                    "notes": notes,
+                },
+            )
+            prediction_run_id = int(result.inserted_primary_key[0])
+            entries = [_prediction_entry_record(prediction_run_id, record, now) for record in row_records]
+            conn.execute(insert(entry_table), entries)
+
+            run_row = conn.execute(select(run_table).where(run_table.c.id == prediction_run_id)).mappings().one()
+            entry_rows = (
+                conn.execute(
+                    select(entry_table)
+                    .where(entry_table.c.prediction_run_id == prediction_run_id)
+                    .order_by(entry_table.c.suggested_rank.asc(), entry_table.c.win_probability.desc(), entry_table.c.id.asc())
+                )
+                .mappings()
+                .all()
+            )
+            return {
+                "run": _prediction_run_payload(conn, dict(run_row)),
+                "entries": [_prediction_entry_payload(dict(row)) for row in entry_rows],
+                "page": {
+                    "limit": len(entry_rows),
+                    "offset": 0,
+                    "returned": len(entry_rows),
+                    "total": len(entry_rows),
+                },
+            }
+    finally:
+        engine.dispose()
+
+
+def read_prediction_runs(database_url: str | Path | None, limit: int = 20, offset: int = 0) -> dict[str, Any]:
+    init_db(database_url)
+    engine = get_engine(database_url)
+    run_table = METADATA.tables["prediction_runs"]
+    try:
+        with engine.connect() as conn:
+            total = int(conn.execute(select(func.count()).select_from(run_table)).scalar_one())
+            rows = (
+                conn.execute(
+                    select(run_table)
+                    .order_by(run_table.c.id.desc())
+                    .limit(limit)
+                    .offset(offset)
+                )
+                .mappings()
+                .all()
+            )
+            runs = [_prediction_run_payload(conn, dict(row)) for row in rows]
+            return {
+                "runs": runs,
+                "page": {"limit": limit, "offset": offset, "returned": len(runs), "total": total},
+            }
+    finally:
+        engine.dispose()
+
+
+def read_prediction_run(
+    database_url: str | Path | None,
+    prediction_run_id: int,
+    limit: int = 100,
+    offset: int = 0,
+) -> dict[str, Any] | None:
+    init_db(database_url)
+    engine = get_engine(database_url)
+    run_table = METADATA.tables["prediction_runs"]
+    entry_table = METADATA.tables["prediction_run_entries"]
+    try:
+        with engine.connect() as conn:
+            run_row = conn.execute(select(run_table).where(run_table.c.id == prediction_run_id)).mappings().first()
+            if not run_row:
+                return None
+            total = int(
+                conn.execute(
+                    select(func.count()).select_from(entry_table).where(entry_table.c.prediction_run_id == prediction_run_id)
+                ).scalar_one()
+            )
+            rows = (
+                conn.execute(
+                    select(entry_table)
+                    .where(entry_table.c.prediction_run_id == prediction_run_id)
+                    .order_by(entry_table.c.suggested_rank.asc(), entry_table.c.win_probability.desc(), entry_table.c.id.asc())
+                    .limit(limit)
+                    .offset(offset)
+                )
+                .mappings()
+                .all()
+            )
+            entries = [_prediction_entry_payload(dict(row)) for row in rows]
+            return {
+                "run": _prediction_run_payload(conn, dict(run_row)),
+                "entries": entries,
+                "page": {"limit": limit, "offset": offset, "returned": len(entries), "total": total},
+            }
     finally:
         engine.dispose()
 

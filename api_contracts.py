@@ -127,6 +127,36 @@ class PredictionsResponse(BaseModel):
     page: PageMeta
 
 
+class PredictionRunEntry(PredictionRow):
+    id: int
+
+
+class PredictionRunRow(BaseModel):
+    id: int
+    modelVersionId: int | None = None
+    raceId: int | None = None
+    runAt: str | None = None
+    source: str
+    notes: str | None = None
+    runnerCount: int
+    topRunner: str | None = None
+    topWinProbability: float | None = None
+    topValueEdge: float | None = None
+
+
+class PredictionRunsResponse(BaseModel):
+    requestId: str
+    runs: List[PredictionRunRow]
+    page: PageMeta
+
+
+class PredictionRunResponse(BaseModel):
+    requestId: str
+    run: PredictionRunRow
+    entries: List[PredictionRunEntry]
+    page: PageMeta
+
+
 class MeetingRow(BaseModel):
     race_date: str | None = None
     track: str | None = None

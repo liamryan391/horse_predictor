@@ -81,6 +81,7 @@ Monitor:
 - `/api/v1/safeguards`
 - `/api/v1/model/registry`
 - `/api/v1/model/evaluation`
+- `/api/v1/prediction-runs`
 - frontend freshness indicator from `/api/v1/summary`
 
 The summary endpoint returns `dataFreshness.status`, `ageHours`, and `maxAgeHours`. The workspace shows this as the Freshness metric.
@@ -94,6 +95,8 @@ The summary endpoint returns `dataFreshness.status`, `ageHours`, and `maxAgeHour
 - `/api/v1/ready` returns `ok`.
 - `/api/v1/safeguards` returns responsible-use, licensing, privacy, and terms notices.
 - A candidate model snapshot can be recorded through `POST /api/v1/admin/model/evaluation`.
+- The reviewed candidate can be approved through `POST /api/v1/admin/model/{model_version_id}/approve`.
+- A prediction snapshot can be recorded through `POST /api/v1/admin/prediction-runs?require_approved_model=true` after model approval.
 - `python scripts/production-readiness-check.py --base-url <api-url>` passes.
 - Ingestion worker records a successful run.
 - Frontend can load meetings, race cards, predictions, model evaluation, and trends.

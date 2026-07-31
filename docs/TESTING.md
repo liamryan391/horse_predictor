@@ -13,6 +13,7 @@ Run all Python tests:
 The suite covers:
 
 - API contract shapes and filtering
+- prediction-run snapshot persistence and API contracts
 - prediction leakage and chronological holdout behavior
 - provider fixture flattening and validation summaries
 - SQLite repository upsert behavior
@@ -52,6 +53,7 @@ Run the production-readiness API smoke check against a live API:
 ```
 
 Add `--require-approved-model` for staging or production once a model version has been recorded and approved.
+Add `--require-prediction-run` when acceptance should also prove that at least one scored race-card snapshot has been persisted.
 
 When `agent-browser` is available on PATH, use it for the visual pass:
 

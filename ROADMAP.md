@@ -449,8 +449,36 @@ Current inspection: `POST /api/v1/admin/model/{model_version_id}/approve` marks 
 ### 10.3 Future Model Lifecycle
 
 - Persist serialized model artifacts.
-- Record prediction runs.
 - Compare candidates against the current approved model before promotion.
 - Add scheduled retraining with guarded promotion.
 
-Current inspection: Phase 10 records model metadata and metrics, but trained artifacts, prediction-run persistence, candidate-vs-approved comparison, and scheduled retraining remain future work.
+Current inspection: Phase 10 records model metadata and metrics, but trained artifacts, candidate-vs-approved comparison, and scheduled retraining remain future work.
+
+## Phase 11: Prediction Operations
+
+### 11.1 Prediction Run Persistence
+
+- Store prediction-run headers.
+- Store runner-level prediction rows for each scored race card.
+- Link prediction runs to the latest approved model metadata when available.
+- Preserve model probabilities, model odds, value edge, and suggested rank.
+
+Current inspection: `prediction_runs` now has runner-level `prediction_run_entries`. `POST /api/v1/admin/prediction-runs` records the current scored race card and links it to the latest approved model metadata when available.
+
+### 11.2 Prediction Run API And UI
+
+- Expose recent prediction runs through the API.
+- Expose prediction-run detail rows through the API.
+- Show recent prediction snapshots in the React Evaluation view.
+- Add a staging/production acceptance check for persisted prediction evidence.
+
+Current inspection: `/api/v1/prediction-runs` lists run summaries, `/api/v1/prediction-runs/{prediction_run_id}` returns runner-level entries, the React Evaluation view shows recent runs, and `scripts/production-readiness-check.py --require-prediction-run` can enforce the gate.
+
+### 11.3 Future Prediction Lifecycle
+
+- Persist serialized model artifacts and score with the approved artifact.
+- Add scheduled prediction snapshot jobs after ingestion refreshes.
+- Add drift checks comparing live prediction distributions with holdout expectations.
+- Add prediction-run cleanup or archival policies once production volume is known.
+
+Current inspection: Phase 11 persists scoring snapshots, but artifact-backed scoring, scheduled scoring, drift monitoring, and retention policies remain future work.

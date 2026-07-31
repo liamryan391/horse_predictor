@@ -67,4 +67,7 @@ Production acceptance can require an approved model version:
 
 - The registry stores evaluation metadata and metrics, not a serialized model artifact.
 - There is no automated model promotion; approval remains an explicit administrative action.
-- A future phase should persist trained artifacts, record prediction runs, and compare candidate metrics against the current approved model before allowing promotion.
+- Prediction runs are persisted through the Phase 11 endpoints, but they still link to approved metadata rather than loading a serialized artifact.
+- A future phase should persist trained artifacts and compare candidate metrics against the current approved model before allowing promotion.
+
+See [PREDICTION_OPERATIONS.md](PREDICTION_OPERATIONS.md) for persisted scoring snapshots.

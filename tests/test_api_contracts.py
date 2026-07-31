@@ -9,11 +9,13 @@ import unittest
 _TEMP_DIR = tempfile.TemporaryDirectory()
 os.environ["DATABASE_URL"] = f"sqlite:///{(Path(_TEMP_DIR.name) / 'api_contracts.db').as_posix()}"
 
-from api import SETTINGS, capture_model_evaluation, entity_profile, health, meetings, model_registry, normalize_request_id, predictions, race_card, ready, safeguards, summary
+from api import SETTINGS, capture_model_evaluation, capture_prediction_run, entity_profile, health, meetings, model_registry, normalize_request_id, prediction_run_detail, prediction_runs, predictions, race_card, ready, safeguards, summary
 from api_contracts import (
     HealthResponse,
     ModelRegistryResponse,
     ModelSnapshotResponse,
+    PredictionRunResponse,
+    PredictionRunsResponse,
     PredictionsResponse,
     ProductSafeguardsResponse,
     RaceCardResponse,
@@ -61,6 +63,18 @@ class APIContractTests(unittest.TestCase):
         self.assertGreaterEqual(response.page.total, 1)
         self.assertEqual(snapshot.model.id, response.models[0].id)
         self.assertIn("runner_brier_score", response.models[0].metrics)
+
+    def test_prediction_runs_expose_persisted_scoring_snapshots(self) -> None:
+        snapshot = PredictionRunResponse(**capture_prediction_run(None))
+        list_response = PredictionRunsResponse(**prediction_runs())
+        detail_response = PredictionRunResponse(**prediction_run_detail(snapshot.run.id, limit=2))
+
+        self.assertGreaterEqual(list_response.page.total, 1)
+        self.assertEqual(snapshot.run.id, list_response.runs[0].id)
+        self.assertEqual(snapshot.run.runnerCount, snapshot.page.total)
+        self.assertEqual(2, detail_response.page.returned)
+        self.assertEqual(snapshot.run.runnerCount, detail_response.page.total)
+        self.assertIsNotNone(snapshot.entries[0].win_probability)
 
     def test_request_id_sanitizer_rejects_unsafe_values(self) -> None:
         self.assertEqual("trace-123_:.ok", normalize_request_id("trace-123_:.ok"))

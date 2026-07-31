@@ -10,14 +10,18 @@ from alembic.config import Config
 import pandas as pd
 from sqlalchemy import create_engine, inspect
 
-from prediction_model import build_feature_table, evaluate_model, train_model
+from prediction_model import build_feature_table, evaluate_model, score_current_races, train_model
 from racing_storage import (
     TABLES,
     approve_model_version,
     ingestion_status,
+    read_latest_approved_model_version,
     read_model_registry,
+    read_prediction_run,
+    read_prediction_runs,
     read_races,
     record_model_evaluation_snapshot,
+    record_prediction_run,
     release_job_lock,
     table_counts,
     try_acquire_job_lock,
@@ -78,6 +82,43 @@ class RacingStorageTests(unittest.TestCase):
             self.assertIsNotNone(approved)
             self.assertEqual("approved", approved["status"])
 
+    def test_prediction_runs_persist_scored_runner_snapshots(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_url = _sqlite_url(Path(temp_dir) / "prediction-runs.db")
+            features = build_feature_table(pd.read_csv(ROOT / "sample_historical_data.csv"))
+            current = pd.read_csv(ROOT / "sample_current_races.csv")
+            model = train_model(features)
+            evaluation = evaluate_model(features)
+            snapshot = record_model_evaluation_snapshot(database_url, model, evaluation)
+            approved = approve_model_version(database_url, snapshot["id"])
+            scored = score_current_races(model, current)
+
+            latest = read_latest_approved_model_version(database_url)
+            run = record_prediction_run(
+                database_url,
+                scored,
+                source="test",
+                model_version_id=latest["id"] if latest else None,
+                notes="unit-test snapshot",
+            )
+
+            self.assertIsNotNone(approved)
+            self.assertEqual(approved["id"], run["run"]["modelVersionId"])
+            self.assertEqual(len(scored), run["page"]["total"])
+            self.assertEqual(len(scored), run["run"]["runnerCount"])
+            self.assertTrue(run["run"]["topRunner"])
+            self.assertIn("win_probability", run["entries"][0])
+
+            runs = read_prediction_runs(database_url)
+            self.assertEqual(1, runs["page"]["total"])
+            self.assertEqual(run["run"]["id"], runs["runs"][0]["id"])
+
+            detail = read_prediction_run(database_url, run["run"]["id"], limit=2)
+
+            self.assertIsNotNone(detail)
+            self.assertEqual(2, detail["page"]["returned"])
+            self.assertEqual(len(scored), detail["page"]["total"])
+
     def test_alembic_upgrade_and_downgrade_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             database_url = _sqlite_url(Path(temp_dir) / "migration.db")
@@ -96,6 +137,7 @@ class RacingStorageTests(unittest.TestCase):
                     engine.dispose()
                 self.assertIn("races_current", table_names)
                 self.assertIn("model_evaluation_results", table_names)
+                self.assertIn("prediction_run_entries", table_names)
 
                 command.downgrade(config, "base")
                 engine = create_engine(database_url)

@@ -31,6 +31,8 @@ from api_contracts import (
     ModelSnapshotResponse,
     ModelStatusResponse,
     PageMeta,
+    PredictionRunResponse,
+    PredictionRunsResponse,
     PredictionsResponse,
     ProductSafeguardsResponse,
     RaceCardResponse,
@@ -45,9 +47,13 @@ from racing_storage import (
     TABLES,
     approve_model_version,
     ingestion_status,
+    read_latest_approved_model_version,
     read_races,
     read_model_registry,
+    read_prediction_run,
+    read_prediction_runs,
     record_model_evaluation_snapshot,
+    record_prediction_run,
     seed_database_from_samples,
     table_counts,
 )
@@ -69,7 +75,7 @@ REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 
 app = FastAPI(
     title="Horse Predictor API",
-    version="0.4.0",
+    version="0.5.0",
     description="Versioned API for race cards, model predictions, ingestion status, and model evaluation.",
     responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 413: {"model": ErrorResponse}, 422: {"model": ErrorResponse}, 429: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
@@ -342,6 +348,16 @@ def build_race_summaries(current_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values(["race_date", "track", "distance"], kind="mergesort") if rows else pd.DataFrame(columns=["race_date", "track", "distance", "surface", "runners", "market_favorite", "average_odds"])
 
 
+def build_scored_predictions(
+    race_date: date | None = None,
+    track: str | None = None,
+    horse: str | None = None,
+) -> pd.DataFrame:
+    _, current_df, model, _ = load_model_bundle()
+    scored_df = score_current_races(model, current_df)
+    return filter_race_rows(scored_df, track=track, race_date=race_date, horse=horse)
+
+
 def require_admin(credentials: HTTPAuthorizationCredentials | None = Depends(admin_auth)) -> None:
     if not SETTINGS.api_auth_token:
         if SETTINGS.is_deployed_environment:
@@ -475,12 +491,31 @@ def predictions(
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> dict[str, Any]:
-    _, current_df, model, _ = load_model_bundle()
-    scored_df = score_current_races(model, current_df)
-    scored_df = filter_race_rows(scored_df, track=track, race_date=race_date, horse=horse)
+    scored_df = build_scored_predictions(race_date=race_date, track=track, horse=horse)
     scored_df = sort_frame(scored_df, sort_by, direction)
     page_df, meta = page_frame(scored_df, limit, offset)
     return {"requestId": request_id(), "predictions": records(page_df), "page": build_page(meta)}
+
+
+@router.get("/prediction-runs", response_model=PredictionRunsResponse)
+def prediction_runs(
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict[str, Any]:
+    runs = read_prediction_runs(DATABASE_URL, limit=limit, offset=offset)
+    return {"requestId": request_id(), **runs}
+
+
+@router.get("/prediction-runs/{prediction_run_id}", response_model=PredictionRunResponse)
+def prediction_run_detail(
+    prediction_run_id: int,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict[str, Any]:
+    run = read_prediction_run(DATABASE_URL, prediction_run_id, limit=limit, offset=offset)
+    if not run:
+        raise HTTPException(status_code=404, detail=f"Prediction run {prediction_run_id} was not found.")
+    return {"requestId": request_id(), **run}
 
 
 @router.get("/entities/{entity_type}/{name}", response_model=EntityProfileResponse)
@@ -560,6 +595,29 @@ def approve_model(model_version_id: int, _: None = Depends(require_admin)) -> di
     if not model_record:
         raise HTTPException(status_code=404, detail=f"Model version {model_version_id} was not found.")
     return {"requestId": request_id(), "model": model_record}
+
+
+@router.post("/admin/prediction-runs", response_model=PredictionRunResponse)
+def capture_prediction_run(
+    _: None = Depends(require_admin),
+    race_date: Annotated[date | None, Query()] = None,
+    track: Annotated[str | None, Query()] = None,
+    horse: Annotated[str | None, Query()] = None,
+    require_approved_model: Annotated[bool, Query()] = False,
+) -> dict[str, Any]:
+    scored_df = build_scored_predictions(race_date=race_date, track=track, horse=horse)
+    scored_df = sort_frame(scored_df, "suggested_rank", "asc")
+    if scored_df.empty:
+        raise HTTPException(status_code=422, detail="No predictions matched the requested snapshot filters.")
+
+    approved_model = read_latest_approved_model_version(DATABASE_URL)
+    if require_approved_model and not approved_model:
+        raise HTTPException(status_code=422, detail="An approved model version is required before recording this prediction run.")
+
+    model_version_id = int(approved_model["id"]) if approved_model else None
+    notes = "linked to latest approved model metadata" if approved_model else "scored with current in-memory model; no approved model metadata linked"
+    run = record_prediction_run(DATABASE_URL, scored_df, source="api", model_version_id=model_version_id, notes=notes)
+    return {"requestId": request_id(), **run}
 
 
 @router.get("/trends", response_model=TrendsResponse)

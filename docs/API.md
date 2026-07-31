@@ -20,6 +20,8 @@ Core endpoints:
 - `GET /api/v1/races`
 - `GET /api/v1/race-card`
 - `GET /api/v1/predictions`
+- `GET /api/v1/prediction-runs`
+- `GET /api/v1/prediction-runs/{prediction_run_id}`
 - `GET /api/v1/entities/{entity_type}/{name}`
 - `GET /api/v1/model`
 - `GET /api/v1/model/evaluation`
@@ -32,6 +34,7 @@ Administrative endpoint:
 - `POST /api/v1/admin/seed-sample`
 - `POST /api/v1/admin/model/evaluation`
 - `POST /api/v1/admin/model/{model_version_id}/approve`
+- `POST /api/v1/admin/prediction-runs`
 
 The same endpoints are also mounted under `/api/...` for current frontend compatibility.
 
@@ -118,3 +121,9 @@ The React Responsible Use page reads this endpoint and falls back to the built-i
 ## Model Registry
 
 `GET /api/v1/model/registry` returns persisted model evaluation snapshots. Use `POST /api/v1/admin/model/evaluation` to record the current candidate metrics, then `POST /api/v1/admin/model/{model_version_id}/approve` to approve a reviewed version. See [MODEL_OPERATIONS.md](MODEL_OPERATIONS.md) for the release workflow.
+
+## Prediction Runs
+
+`GET /api/v1/prediction-runs` lists persisted scoring snapshots, and `GET /api/v1/prediction-runs/{prediction_run_id}` returns the runner-level rows for one run.
+
+Use `POST /api/v1/admin/prediction-runs` to record the current scored race card after data import or model approval. Add `require_approved_model=true` when staging or production should reject unlinked prediction snapshots. See [PREDICTION_OPERATIONS.md](PREDICTION_OPERATIONS.md) for the run workflow.

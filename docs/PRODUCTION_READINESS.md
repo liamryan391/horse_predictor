@@ -91,9 +91,11 @@ Model approval:
 - Require a non-empty chronological holdout.
 - Compare model metrics against the market baseline before launch.
 - Approve the reviewed model with `POST /api/v1/admin/model/{model_version_id}/approve`.
+- Record a prediction snapshot with `POST /api/v1/admin/prediction-runs?require_approved_model=true`.
 - Record the approved commit SHA and data snapshot window.
 
 When production is expected to have an approved model, add `--require-approved-model` to `scripts/production-readiness-check.py`.
+When production is expected to have persisted scoring evidence, add `--require-prediction-run` too.
 
 Monitored release:
 

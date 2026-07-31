@@ -30,9 +30,10 @@ The initial normalized schema adds:
 - `api_ingestion_runs`
 - `model_versions`
 - `prediction_runs`
+- `prediction_run_entries`
 - `model_evaluation_results`
 
-The normalized tables give future phases a place to store provider identifiers, race-card entities, odds snapshots, model versions, prediction runs, evaluation metrics, and user bet history without overloading the flat model tables.
+The normalized tables give future phases a place to store provider identifiers, race-card entities, odds snapshots, model versions, prediction run headers, runner-level prediction entries, evaluation metrics, and user bet history without overloading the flat model tables.
 
 ## Migrations
 

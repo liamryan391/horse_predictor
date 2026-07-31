@@ -16,6 +16,7 @@ REQUIRED_ENDPOINTS = [
     "/api/v1/safeguards",
     "/api/v1/model/registry",
     "/api/v1/model/evaluation",
+    "/api/v1/prediction-runs",
     "/api/v1/ingestion-status",
 ]
 
@@ -63,6 +64,7 @@ def check_readiness(payloads: dict[str, dict[str, Any]], args: argparse.Namespac
     summary = payloads["/api/v1/summary"]
     safeguards = payloads["/api/v1/safeguards"]
     registry = payloads["/api/v1/model/registry"]
+    prediction_runs = payloads["/api/v1/prediction-runs"]
 
     require(ready.get("status") == "ok" or args.allow_degraded, "/api/v1/ready must return status=ok.", failures)
     require(bool(ready.get("databaseReady")) or args.allow_degraded, "Database readiness must be true.", failures)
@@ -92,6 +94,10 @@ def check_readiness(payloads: dict[str, dict[str, Any]], args: argparse.Namespac
         approved = [model for model in models if model.get("status") == "approved"]
         require(bool(approved), "At least one approved model version must exist in /api/v1/model/registry.", failures)
 
+    if args.require_prediction_run:
+        runs = prediction_runs.get("runs") or []
+        require(bool(runs), "At least one persisted prediction run must exist in /api/v1/prediction-runs.", failures)
+
     return failures
 
 
@@ -114,6 +120,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--allow-degraded", action="store_true", help="Do not fail when /ready is degraded.")
     parser.add_argument("--require-policy-links", action="store_true", help="Require responsible gambling, privacy, and terms URLs.")
     parser.add_argument("--require-approved-model", action="store_true", help="Require an approved model version in the model registry.")
+    parser.add_argument("--require-prediction-run", action="store_true", help="Require at least one persisted prediction run.")
     parser.add_argument("--require-hsts", action="store_true", help="Require Strict-Transport-Security for HTTPS deployments.")
     return parser.parse_args(argv)
 

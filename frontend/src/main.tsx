@@ -125,6 +125,19 @@ type ModelRegistryRow = {
   metrics: EvaluationMetrics;
 };
 
+type PredictionRun = {
+  id: number;
+  modelVersionId: number | null;
+  raceId: number | null;
+  runAt: string | null;
+  source: string;
+  notes: string | null;
+  runnerCount: number;
+  topRunner: string | null;
+  topWinProbability: number | null;
+  topValueEdge: number | null;
+};
+
 type EvaluationMetrics = {
   runner_log_loss?: number | null;
   runner_brier_score?: number | null;
@@ -347,6 +360,7 @@ function Workspace() {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [model, setModel] = useState<ModelStatus | null>(null);
   const [modelRegistry, setModelRegistry] = useState<ModelRegistryRow[]>([]);
+  const [predictionRuns, setPredictionRuns] = useState<PredictionRun[]>([]);
   const [trends, setTrends] = useState<Trends | null>(null);
   const [track, setTrack] = useState(() => localStorageValue(TRACK_FILTER_KEY, "All tracks"));
   const [search, setSearch] = useState("");
@@ -358,12 +372,13 @@ function Workspace() {
     setLoading(true);
     setError(null);
     try {
-      const [summaryResult, predictionResult, modelResult, modelRegistryResult, trendResult, meetingResult, raceCardResult] =
+      const [summaryResult, predictionResult, modelResult, modelRegistryResult, predictionRunsResult, trendResult, meetingResult, raceCardResult] =
         await Promise.all([
           apiGet<Summary>("/summary"),
           apiGet<{ predictions: Prediction[]; page: PageMeta }>("/predictions?limit=500"),
           apiGet<ModelStatus>("/model"),
           apiGet<{ models: ModelRegistryRow[]; page: PageMeta }>("/model/registry?limit=10"),
+          apiGet<{ runs: PredictionRun[]; page: PageMeta }>("/prediction-runs?limit=5"),
           apiGet<Trends>("/trends"),
           apiGet<{ meetings: Meeting[]; page: PageMeta }>("/meetings?limit=200"),
           apiGet<{ raceCard: RaceRunner[]; page: PageMeta }>("/race-card?limit=500")
@@ -372,6 +387,7 @@ function Workspace() {
       setPredictions(predictionResult.predictions);
       setModel(modelResult);
       setModelRegistry(modelRegistryResult.models);
+      setPredictionRuns(predictionRunsResult.runs);
       setTrends(trendResult);
       setMeetings(meetingResult.meetings);
       setRaceCard(raceCardResult.raceCard);
@@ -506,6 +522,7 @@ function Workspace() {
             <>
               <EvaluationPanel evaluation={model.evaluation} model={model} />
               <ModelRegistryTable rows={modelRegistry} />
+              <PredictionRunTable rows={predictionRuns} />
             </>
           )}
           {view === "trends" && <TrendGrid trends={trends} />}
@@ -667,6 +684,58 @@ function ModelRegistryTable({ rows }: { rows: ModelRegistryRow[] }) {
             {rows.length === 0 && (
               <tr>
                 <td colSpan={7}>No persisted model snapshots yet.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function PredictionRunTable({ rows }: { rows: PredictionRun[] }) {
+  return (
+    <section className="registry-panel">
+      <div className="evaluation-header">
+        <ClipboardList size={20} />
+        <div>
+          <h2>Prediction Runs</h2>
+          <span>Persisted scoring snapshots for current race cards.</span>
+        </div>
+      </div>
+      <div className="table-wrap registry-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Run</th>
+              <th>Recorded</th>
+              <th>Model</th>
+              <th>Runners</th>
+              <th>Top runner</th>
+              <th>Win probability</th>
+              <th>Value edge</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.id}>
+                <td>
+                  <strong>#{row.id}</strong>
+                  <span className="table-subtext">{row.source}</span>
+                </td>
+                <td>{formatDate(row.runAt)}</td>
+                <td>{row.modelVersionId ? `#${row.modelVersionId}` : "Unlinked"}</td>
+                <td>{formatInteger(row.runnerCount)}</td>
+                <td>{row.topRunner ?? "-"}</td>
+                <td>{formatPercent(row.topWinProbability)}</td>
+                <td className={(row.topValueEdge ?? 0) >= 0 ? "positive" : "negative"}>
+                  {formatPercent(row.topValueEdge)}
+                </td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={7}>No persisted prediction runs yet.</td>
               </tr>
             )}
           </tbody>
