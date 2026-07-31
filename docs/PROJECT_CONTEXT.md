@@ -30,3 +30,4 @@ This file captures the important context imported from the original `Open horse_
 - Do not expose secrets, API credentials, or production database URLs through public endpoints.
 - Prefer idempotent ingestion and upserts over replacing production tables.
 - Keep API provider payloads separate from internal database models.
+- Keep provider-specific API mapping inside `provider_adapters.py`.

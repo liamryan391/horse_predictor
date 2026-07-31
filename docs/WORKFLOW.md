@@ -37,6 +37,8 @@ Run ingestion with sample data:
 .\.venv\Scripts\python.exe data_pipeline.py --provider sample
 ```
 
+Provider ingestion changes should include adapter validation or a smoke test against a throwaway SQLite database.
+
 ## Release Flow
 
 1. Merge feature work into `development`.

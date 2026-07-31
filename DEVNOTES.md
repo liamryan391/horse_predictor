@@ -129,11 +129,17 @@ Hourly worker:
 .\.venv\Scripts\python.exe data_pipeline.py --provider theracingapi --repeat-hourly
 ```
 
+Provider retry/rate-limit controls:
+
+```powershell
+.\.venv\Scripts\python.exe data_pipeline.py --provider theracingapi --retry-attempts 5 --min-request-interval-seconds 1
+```
+
 ## Improvements to do next
 
 - Move schema management to Alembic migrations.
 - Move scheduled ingestion into a proper background worker such as APScheduler, Celery, or a hosted cron job.
-- Add data validation before database writes, especially for provider-specific API payloads.
+- Persist raw provider payload references for traceability.
 - Store trained model metrics and backtests in SQL instead of retraining only on request.
 - Add authentication before exposing the tool outside localhost.
 - Add model evaluation: log loss, calibration, profit simulation, and race-level holdout testing.

@@ -82,6 +82,7 @@ def write_races(
     df: pd.DataFrame,
     source: str,
     replace: bool = False,
+    message: str | None = None,
 ) -> int:
     if table_name not in VALID_TABLES:
         raise ValueError(f"Unsupported table: {table_name}")
@@ -112,24 +113,45 @@ def write_races(
                 "source": source,
                 "row_count": len(write_df),
                 "status": "success",
-                "message": None,
+                "message": message,
                 "ingested_at": utc_now(),
             },
         )
-        conn.execute(
-            insert(METADATA.tables["api_ingestion_runs"]),
-            {
-                "provider": source,
-                "target_table": table_name,
-                "status": "success",
-                "row_count": len(records),
-                "started_at": started_at,
-                "completed_at": utc_now(),
-                "message": "replace" if replace else "upsert",
-            },
-        )
+        run_message = "replace" if replace else "upsert"
+        if message:
+            run_message = f"{run_message}; {message}"
+        insert_ingestion_run(conn, source, table_name, "success", len(records), run_message, started_at)
 
     return len(write_df)
+
+
+def insert_ingestion_run(conn, provider: str, target_table: str, status: str, row_count: int, message: str | None, started_at: datetime) -> None:
+    conn.execute(
+        insert(METADATA.tables["api_ingestion_runs"]),
+        {
+            "provider": provider,
+            "target_table": target_table,
+            "status": status,
+            "row_count": row_count,
+            "started_at": started_at,
+            "completed_at": utc_now(),
+            "message": message,
+        },
+    )
+
+
+def record_ingestion_run(
+    database_url: str | Path | None,
+    provider: str,
+    target_table: str,
+    status: str,
+    row_count: int = 0,
+    message: str | None = None,
+) -> None:
+    init_db(database_url)
+    engine = get_engine(database_url)
+    with engine.begin() as conn:
+        insert_ingestion_run(conn, provider, target_table, status, row_count, message, utc_now())
 
 
 def read_races(database_url: str | Path | None, table_name: str) -> pd.DataFrame:

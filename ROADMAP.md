@@ -149,6 +149,8 @@ Evaluate providers based on:
 - Normalize dates, distances, surfaces, going, odds, and identities.
 - Handle pagination.
 
+Current inspection: provider mapping now lives in `provider_adapters.py` with adapter classes for `generic`, `theracingapi`, and `ourhub`. Provider rows are normalized and validated before database writes, and The Racing API result fetching has bounded pagination support.
+
 ### 3.3 Reliability
 
 - Add retries with exponential backoff.
@@ -159,6 +161,8 @@ Evaluate providers based on:
 - Preserve partial progress safely.
 - Alert on repeated failures.
 
+Current inspection: remote provider calls now support timeout, retry, backoff, minimum request interval, and failure logging to `api_ingestion_runs`. Provider writes use Phase 2 upserts. Alerting remains future work.
+
 ### 3.4 Scheduling
 
 - Start with a local manual command.
@@ -167,6 +171,8 @@ Evaluate providers based on:
 - Refresh odds more frequently only if licensing and provider limits allow it.
 - Import official results after races.
 - Reconcile postponed, abandoned, and corrected races.
+
+Current inspection: local manual commands and hourly loop remain available. A proper hosted scheduler or worker remains Phase 4/8 work.
 
 ## Phase 4: Prediction And Evaluation
 

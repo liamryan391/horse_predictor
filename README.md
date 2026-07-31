@@ -114,6 +114,12 @@ Run continuously with an hourly refresh:
 .\.venv\Scripts\python.exe data_pipeline.py --provider theracingapi --repeat-hourly
 ```
 
+Remote providers support retry, timeout, rate-limit, and pagination controls:
+
+```powershell
+.\.venv\Scripts\python.exe data_pipeline.py --provider theracingapi --retry-attempts 5 --min-request-interval-seconds 1
+```
+
 ## Required data fields
 
 Historical rows need:
@@ -151,3 +157,4 @@ See [ROADMAP.md](ROADMAP.md) for the planned path from prototype to production-r
 See [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) for imported project context and [docs/WORKFLOW.md](docs/WORKFLOW.md) for the branch and PR workflow.
 See [docs/SETUP.md](docs/SETUP.md) for Windows, Linux/macOS, Docker, and configuration setup.
 See [docs/DATABASE.md](docs/DATABASE.md) for schema, migration, and ingestion-write notes.
+See [docs/INGESTION.md](docs/INGESTION.md) for provider adapter, validation, retry, and failure logging notes.

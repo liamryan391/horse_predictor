@@ -30,6 +30,11 @@ class Settings:
     horse_api_key: str
     racing_api_username: str
     racing_api_password: str
+    horse_api_timeout_seconds: float
+    horse_api_retry_attempts: int
+    horse_api_retry_backoff_seconds: float
+    horse_api_min_request_interval_seconds: float
+    horse_api_max_pages: int
     vite_api_base_url: str
     sample_historical_csv: Path
     sample_current_csv: Path
@@ -85,6 +90,11 @@ def get_settings() -> Settings:
         horse_api_key=os.getenv("HORSE_API_KEY", ""),
         racing_api_username=os.getenv("RACING_API_USERNAME", ""),
         racing_api_password=os.getenv("RACING_API_PASSWORD", ""),
+        horse_api_timeout_seconds=float(os.getenv("HORSE_API_TIMEOUT_SECONDS", "30")),
+        horse_api_retry_attempts=int(os.getenv("HORSE_API_RETRY_ATTEMPTS", "3")),
+        horse_api_retry_backoff_seconds=float(os.getenv("HORSE_API_RETRY_BACKOFF_SECONDS", "1.5")),
+        horse_api_min_request_interval_seconds=float(os.getenv("HORSE_API_MIN_REQUEST_INTERVAL_SECONDS", "0")),
+        horse_api_max_pages=int(os.getenv("HORSE_API_MAX_PAGES", "5")),
         vite_api_base_url=os.getenv("VITE_API_BASE_URL", "http://127.0.0.1:8000"),
         sample_historical_csv=Path(os.getenv("SAMPLE_HISTORICAL_CSV", BASE_DIR / "sample_historical_data.csv")),
         sample_current_csv=Path(os.getenv("SAMPLE_CURRENT_CSV", BASE_DIR / "sample_current_races.csv")),
