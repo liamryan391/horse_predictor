@@ -282,7 +282,7 @@ p {
 
 .metric-row {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 14px;
   margin-bottom: 18px;
 }
@@ -336,6 +336,38 @@ select {
   overflow-x: auto;
   border: 1px solid #dce1d4;
   border-radius: 8px;
+}
+
+.evaluation-panel {
+  padding: 18px;
+  border: 1px solid #dce1d4;
+  border-radius: 8px;
+  background: #ffffff;
+  margin-bottom: 18px;
+}
+
+.evaluation-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 14px;
+  color: #234c39;
+}
+
+.evaluation-header h2 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+}
+
+.evaluation-header span {
+  color: #69736a;
+  font-size: 0.9rem;
+}
+
+.evaluation-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 12px;
 }
 
 table {

@@ -140,8 +140,8 @@ Provider retry/rate-limit controls:
 - Move schema management to Alembic migrations.
 - Move scheduled ingestion into a proper background worker such as APScheduler, Celery, or a hosted cron job.
 - Persist raw provider payload references for traceability.
-- Store trained model metrics and backtests in SQL instead of retraining only on request.
+- Store trained model artifacts and promotion decisions in SQL instead of retraining only on request.
 - Add authentication before exposing the tool outside localhost.
-- Add model evaluation: log loss, calibration, profit simulation, and race-level holdout testing.
+- Add deeper model evaluation with calibration charts, drawdown, and race-level provider history.
 - Add a managed deployment target: MySQL, FastAPI service, React static hosting, and a scheduled ingestion job.
 - Replace sample-derived features with richer provider fields such as going, class, official rating, recent form, trainer strike rate, and market movement.

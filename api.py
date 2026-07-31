@@ -7,7 +7,7 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from prediction_model import build_feature_table, score_current_races, summarize_entities, train_model
+from prediction_model import build_feature_table, evaluate_model, score_current_races, summarize_entities, train_model
 from racing_storage import (
     TABLES,
     ingestion_status,
@@ -107,13 +107,23 @@ def race_card() -> dict[str, Any]:
 @app.get("/api/model")
 def model_status() -> dict[str, Any]:
     _, _, model, history_features = load_model_bundle()
+    evaluation = evaluate_model(history_features)
     return {
         "trainingRows": model.training_rows,
         "winnerRate": model.winner_rate,
+        "trainingStart": model.training_start,
+        "trainingEnd": model.training_end,
         "featureCount": len(model.feature_columns),
         "features": model.feature_columns,
         "historicalRows": len(history_features),
+        "evaluation": evaluation.to_dict(),
     }
+
+
+@app.get("/api/model/evaluation")
+def model_evaluation() -> dict[str, Any]:
+    _, _, _, history_features = load_model_bundle()
+    return {"evaluation": evaluate_model(history_features).to_dict()}
 
 
 @app.get("/api/trends")

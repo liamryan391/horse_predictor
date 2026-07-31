@@ -182,7 +182,7 @@ Current inspection: local manual commands and hourly loop remain available. A pr
 - Keep target creation separate from feature creation.
 - Add explicit leakage tests.
 
-Current inspection: `prediction_model.train_model` excludes `finishing_position`, `is_winner`, and `race_date` from predictors. This is good, but it needs a regression test.
+Current inspection: `prediction_model.train_model` excludes `finishing_position`, `is_winner`, and `race_date` from predictors, and `tests/test_prediction_model.py` now covers the leakage guard.
 
 ### 4.2 Feature Engineering
 
@@ -204,6 +204,8 @@ Potential features include:
 - Odds movement.
 - Field size.
 
+Current inspection: the shared model module now adds pre-race context features for implied probability, field size, odds rank, relative speed rating, and relative class rating.
+
 ### 4.3 Proper Validation
 
 - Use chronological train/validation/test splits.
@@ -211,6 +213,8 @@ Potential features include:
 - Evaluate by race rather than only by runner.
 - Measure log loss, Brier score, calibration, ranking quality, and top-pick win rate.
 - Compare against market odds as a baseline.
+
+Current inspection: `evaluate_model` now uses chronological race-level holdout validation and reports runner log loss, Brier score, calibration error, ranking quality, top-pick win rate, and market baseline metrics through `/api/model` and `/api/model/evaluation`.
 
 ### 4.4 Backtesting
 
@@ -220,6 +224,8 @@ Potential features include:
 - Prevent retrospective use of unavailable information.
 - Clearly separate predictive performance from betting profitability.
 
+Current inspection: the evaluator now reports a basic fixed-stake value-bet profit and ROI separately from predictive metrics. Drawdown, commission, and proportional staking remain future work.
+
 ### 4.5 Model Lifecycle
 
 - Store model version and training range.
@@ -227,6 +233,8 @@ Potential features include:
 - Promote models only if they outperform the current approved model.
 - Add retraining schedules.
 - Never describe automatic retraining as "self-improvement" unless promotion is governed by validated metrics.
+
+Current inspection: model metrics are visible in the API, React Race Lab, and Streamlit model tab. Persisted model artifacts, promotion gates, and retraining schedules remain future work.
 
 ## Phase 5: Backend API
 

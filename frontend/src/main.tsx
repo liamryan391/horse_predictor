@@ -45,9 +45,40 @@ type Prediction = {
 type ModelStatus = {
   trainingRows: number;
   winnerRate: number;
+  trainingStart: string | null;
+  trainingEnd: string | null;
   featureCount: number;
   features: string[];
   historicalRows: number;
+  evaluation: ModelEvaluation;
+};
+
+type EvaluationMetrics = {
+  runner_log_loss?: number | null;
+  runner_brier_score?: number | null;
+  market_log_loss?: number | null;
+  market_brier_score?: number | null;
+  calibration_mae?: number | null;
+  top_pick_win_rate?: number | null;
+  market_top_pick_win_rate?: number | null;
+  mean_winner_rank?: number | null;
+  market_mean_winner_rank?: number | null;
+  fixed_stake_bets?: number | null;
+  fixed_stake_profit?: number | null;
+  fixed_stake_roi?: number | null;
+};
+
+type ModelEvaluation = {
+  status: string;
+  message: string | null;
+  trainingRows: number;
+  validationRows: number;
+  trainingRaces: number;
+  validationRaces: number;
+  evaluationStart: string | null;
+  evaluationEnd: string | null;
+  metrics: EvaluationMetrics;
+  leakageFeatures: string[];
 };
 
 type TrendRow = {
@@ -82,6 +113,17 @@ function formatPercent(value: number | null | undefined) {
 function formatNumber(value: number | null | undefined, digits = 2) {
   if (value === null || value === undefined || Number.isNaN(value)) return "-";
   return value.toFixed(digits);
+}
+
+function formatInteger(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) return "-";
+  return Math.round(value).toLocaleString();
+}
+
+function formatSignedNumber(value: number | null | undefined, digits = 2) {
+  if (value === null || value === undefined || Number.isNaN(value)) return "-";
+  const formatted = value.toFixed(digits);
+  return value > 0 ? `+${formatted}` : formatted;
 }
 
 async function apiGet<T>(path: string): Promise<T> {
@@ -152,7 +194,7 @@ function HomePage({ onOpenTool }: { onOpenTool: () => void }) {
         <p>
           Horse Predictor turns API-fed racing data into ranked runners, model odds, value edges,
           and stable trend signals. The model retrains from the latest historical results in the
-          database, so better data directly improves the tool.
+          database, so better data can support stronger model review.
         </p>
         <div className="hero-actions">
           <button className="primary-action" onClick={onOpenTool}>
@@ -209,8 +251,8 @@ function AboutPage() {
         </article>
         <article>
           <Activity size={24} />
-          <h2>Self-improving</h2>
-          <p>As more verified results arrive, the model can retrain with a deeper evidence base.</p>
+          <h2>Evidence review</h2>
+          <p>Verified results create a deeper holdout record for model evaluation.</p>
         </article>
         <article>
           <Database size={24} />
@@ -284,6 +326,8 @@ function RaceLab() {
         <Metric label="Current runners" value={summary?.currentRunners.toLocaleString() ?? "-"} />
         <Metric label="Training rows" value={model?.trainingRows.toLocaleString() ?? "-"} />
         <Metric label="Winner rate" value={formatPercent(model?.winnerRate)} />
+        <Metric label="Top-pick holdout" value={formatPercent(model?.evaluation.metrics.top_pick_win_rate)} />
+        <Metric label="Holdout Brier" value={formatNumber(model?.evaluation.metrics.runner_brier_score, 3)} />
       </div>
 
       <div className="toolbar">
@@ -299,6 +343,8 @@ function RaceLab() {
         </label>
         <span>Last refresh: {summary?.lastRefresh ?? "Waiting for ingestion"}</span>
       </div>
+
+      {model?.evaluation && <EvaluationPanel evaluation={model.evaluation} />}
 
       <PredictionTable rows={filtered} loading={loading} />
 
@@ -317,6 +363,38 @@ function Metric({ label, value }: { label: string; value: string }) {
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
+  );
+}
+
+function EvaluationPanel({ evaluation }: { evaluation: ModelEvaluation }) {
+  const metrics = evaluation.metrics;
+
+  return (
+    <section className="evaluation-panel">
+      <div className="evaluation-header">
+        <ShieldCheck size={20} />
+        <div>
+          <h2>Model Evaluation</h2>
+          <span>
+            {evaluation.status === "ok"
+              ? `${evaluation.evaluationStart ?? "-"} to ${evaluation.evaluationEnd ?? "-"}`
+              : evaluation.message ?? "Waiting for enough historical races"}
+          </span>
+        </div>
+      </div>
+      <div className="evaluation-grid">
+        <Metric label="Training races" value={formatInteger(evaluation.trainingRaces)} />
+        <Metric label="Validation races" value={formatInteger(evaluation.validationRaces)} />
+        <Metric label="Runner log loss" value={formatNumber(metrics.runner_log_loss, 3)} />
+        <Metric label="Market log loss" value={formatNumber(metrics.market_log_loss, 3)} />
+        <Metric label="Calibration gap" value={formatPercent(metrics.calibration_mae)} />
+        <Metric label="Market top pick" value={formatPercent(metrics.market_top_pick_win_rate)} />
+        <Metric label="Mean winner rank" value={formatNumber(metrics.mean_winner_rank, 2)} />
+        <Metric label="Fixed-stake bets" value={formatInteger(metrics.fixed_stake_bets)} />
+        <Metric label="Fixed-stake profit" value={formatSignedNumber(metrics.fixed_stake_profit)} />
+        <Metric label="Fixed-stake ROI" value={formatPercent(metrics.fixed_stake_roi)} />
+      </div>
+    </section>
   );
 }
 

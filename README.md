@@ -151,10 +151,11 @@ Optional model features:
 
 ## Notes
 
-This is decision-support software, not guaranteed betting advice. Model quality depends on the amount, accuracy, and freshness of historical results. For production, add schema validation, automated backtesting, authentication, and a managed MySQL database.
+This is decision-support software, not guaranteed betting advice. Model quality depends on the amount, accuracy, and freshness of historical results. For production, add authentication, managed hosting, larger provider history, and governed model promotion.
 
 See [ROADMAP.md](ROADMAP.md) for the planned path from prototype to production-ready platform.
 See [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) for imported project context and [docs/WORKFLOW.md](docs/WORKFLOW.md) for the branch and PR workflow.
 See [docs/SETUP.md](docs/SETUP.md) for Windows, Linux/macOS, Docker, and configuration setup.
 See [docs/DATABASE.md](docs/DATABASE.md) for schema, migration, and ingestion-write notes.
 See [docs/INGESTION.md](docs/INGESTION.md) for provider adapter, validation, retry, and failure logging notes.
+See [docs/MODELING.md](docs/MODELING.md) for leakage checks, holdout evaluation, and backtesting metric notes.
