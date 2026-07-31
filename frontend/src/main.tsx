@@ -79,6 +79,10 @@ type RaceRunner = {
 };
 
 type Prediction = RaceRunner & {
+  country: string | null;
+  distance_bucket: string | null;
+  going_category: string | null;
+  race_type: string | null;
   model_odds: number | null;
   win_probability: number | null;
   implied_probability: number | null;
@@ -188,6 +192,43 @@ type Trends = {
   jockey: TrendRow[];
   trainer: TrendRow[];
   owner: TrendRow[];
+};
+
+type DataQualityIssue = {
+  severity: string;
+  rowNumber: number | null;
+  field: string;
+  message: string;
+};
+
+type FieldCoverage = {
+  field: string;
+  total: number;
+  nonMissing: number;
+  coverage: number;
+};
+
+type DataQualityTable = {
+  tableName: string;
+  rows: number;
+  issueCount: number;
+  issues: DataQualityIssue[];
+  coverage: FieldCoverage[];
+};
+
+type ProviderFreshness = {
+  provider: string;
+  tableName: string;
+  status: string;
+  rowCount: number;
+  completedAt: string | null;
+  message: string | null;
+};
+
+type DataQuality = {
+  requestId: string;
+  tables: DataQualityTable[];
+  providerFreshness: ProviderFreshness[];
 };
 
 type ProductSafeguards = {
@@ -369,6 +410,7 @@ function Workspace() {
   const [modelRegistry, setModelRegistry] = useState<ModelRegistryRow[]>([]);
   const [predictionRuns, setPredictionRuns] = useState<PredictionRun[]>([]);
   const [trends, setTrends] = useState<Trends | null>(null);
+  const [quality, setQuality] = useState<DataQuality | null>(null);
   const [track, setTrack] = useState(() => localStorageValue(TRACK_FILTER_KEY, "All tracks"));
   const [search, setSearch] = useState("");
   const [view, setView] = useState<WorkspaceView>("rankings");
@@ -379,7 +421,17 @@ function Workspace() {
     setLoading(true);
     setError(null);
     try {
-      const [summaryResult, predictionResult, modelResult, modelRegistryResult, predictionRunsResult, trendResult, meetingResult, raceCardResult] =
+      const [
+        summaryResult,
+        predictionResult,
+        modelResult,
+        modelRegistryResult,
+        predictionRunsResult,
+        trendResult,
+        meetingResult,
+        raceCardResult,
+        qualityResult
+      ] =
         await Promise.all([
           apiGet<Summary>("/summary"),
           apiGet<{ predictions: Prediction[]; page: PageMeta }>("/predictions?limit=500"),
@@ -388,7 +440,8 @@ function Workspace() {
           apiGet<{ runs: PredictionRun[]; page: PageMeta }>("/prediction-runs?limit=5"),
           apiGet<Trends>("/trends"),
           apiGet<{ meetings: Meeting[]; page: PageMeta }>("/meetings?limit=200"),
-          apiGet<{ raceCard: RaceRunner[]; page: PageMeta }>("/race-card?limit=500")
+          apiGet<{ raceCard: RaceRunner[]; page: PageMeta }>("/race-card?limit=500"),
+          apiGet<DataQuality>("/data-quality")
         ]);
       setSummary(summaryResult);
       setPredictions(predictionResult.predictions);
@@ -398,6 +451,7 @@ function Workspace() {
       setTrends(trendResult);
       setMeetings(meetingResult.meetings);
       setRaceCard(raceCardResult.raceCard);
+      setQuality(qualityResult);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load racing data.");
     } finally {
@@ -446,7 +500,8 @@ function Workspace() {
 
   const topRunner = filteredPredictions[0];
   const secondRunner = filteredPredictions[1];
-  const dataQuality = model?.evaluation.status === "ok" ? "Holdout active" : "Needs history";
+  const qualityIssueCount = quality?.tables.reduce((total, table) => total + table.issueCount, 0);
+  const dataQuality = qualityIssueCount === undefined ? "Loading" : qualityIssueCount === 0 ? "Clear" : `${qualityIssueCount} issues`;
 
   return (
     <section className="workspace">
@@ -530,6 +585,7 @@ function Workspace() {
               <EvaluationPanel evaluation={model.evaluation} model={model} />
               <ModelRegistryTable rows={modelRegistry} />
               <PredictionRunTable rows={predictionRuns} />
+              <DataQualityPanel quality={quality} />
             </>
           )}
           {view === "trends" && <TrendGrid trends={trends} />}
@@ -751,6 +807,95 @@ function PredictionRunTable({ rows }: { rows: PredictionRun[] }) {
             {rows.length === 0 && (
               <tr>
                 <td colSpan={7}>No persisted prediction runs yet.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function coverageValue(rows: FieldCoverage[], field: string) {
+  return rows.find((row) => row.field === field)?.coverage;
+}
+
+function DataQualityPanel({ quality }: { quality: DataQuality | null }) {
+  const tables = quality?.tables ?? [];
+  const freshness = quality?.providerFreshness ?? [];
+
+  return (
+    <section className="registry-panel">
+      <div className="evaluation-header">
+        <Activity size={20} />
+        <div>
+          <h2>Data Quality</h2>
+          <span>Provider freshness and enrichment coverage for model-serving inputs.</span>
+        </div>
+      </div>
+      <div className="table-wrap registry-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Table</th>
+              <th>Rows</th>
+              <th>Issues</th>
+              <th>Country</th>
+              <th>Distance bucket</th>
+              <th>Going</th>
+              <th>Race type</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tables.map((row) => (
+              <tr key={row.tableName}>
+                <td>
+                  <strong>{row.tableName}</strong>
+                </td>
+                <td>{formatInteger(row.rows)}</td>
+                <td>{formatInteger(row.issueCount)}</td>
+                <td>{formatPercent(coverageValue(row.coverage, "country"))}</td>
+                <td>{formatPercent(coverageValue(row.coverage, "distance_bucket"))}</td>
+                <td>{formatPercent(coverageValue(row.coverage, "going_category"))}</td>
+                <td>{formatPercent(coverageValue(row.coverage, "race_type"))}</td>
+              </tr>
+            ))}
+            {tables.length === 0 && (
+              <tr>
+                <td colSpan={7}>No data-quality snapshot available.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <div className="table-wrap registry-table-wrap compact-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>Table</th>
+              <th>Status</th>
+              <th>Rows</th>
+              <th>Completed</th>
+            </tr>
+          </thead>
+          <tbody>
+            {freshness.map((row) => (
+              <tr key={`${row.provider}-${row.tableName}`}>
+                <td>{row.provider}</td>
+                <td>{row.tableName}</td>
+                <td>
+                  <span className={`status-pill ${row.status === "success" ? "approved" : "superseded"}`}>
+                    {row.status}
+                  </span>
+                </td>
+                <td>{formatInteger(row.rowCount)}</td>
+                <td>{formatDate(row.completedAt)}</td>
+              </tr>
+            ))}
+            {freshness.length === 0 && (
+              <tr>
+                <td colSpan={5}>No provider ingestion runs recorded yet.</td>
               </tr>
             )}
           </tbody>

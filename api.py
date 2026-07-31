@@ -24,6 +24,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from observability import configure_logging
 from api_contracts import (
+    DataQualityResponse,
     EntityProfileResponse,
     ErrorResponse,
     HealthResponse,
@@ -55,6 +56,8 @@ from prediction_model import (
     summarize_entities,
     train_model,
 )
+from data_quality import enrichment_quality_issues, field_coverage, race_row_quality_issues
+from race_enrichment import ENRICHMENT_COLUMNS, enrich_race_frame
 from racing_storage import (
     TABLES,
     approve_model_version,
@@ -65,6 +68,7 @@ from racing_storage import (
     read_prediction_run,
     read_prediction_runs,
     read_races,
+    provider_freshness_report,
     record_model_evaluation_snapshot,
     record_prediction_run,
     seed_database_from_samples,
@@ -505,6 +509,38 @@ def summary() -> dict[str, Any]:
         "lastRefresh": last_refresh,
         "dataFreshness": data_freshness(last_refresh),
     }
+
+
+def quality_issue_payload(issue: Any) -> dict[str, Any]:
+    return {
+        "severity": issue.severity,
+        "rowNumber": issue.row_number,
+        "field": issue.field,
+        "message": issue.message,
+    }
+
+
+@router.get("/data-quality", response_model=DataQualityResponse)
+def data_quality() -> dict[str, Any]:
+    ensure_seed_data()
+    table_payloads = []
+    for label, table_name, current_mode in [
+        ("historical", TABLES["historical"], False),
+        ("current", TABLES["current"], True),
+    ]:
+        frame = read_races(DATABASE_URL, table_name)
+        enriched = enrich_race_frame(frame)
+        issues = race_row_quality_issues(frame, current_mode=current_mode) + enrichment_quality_issues(frame)
+        table_payloads.append(
+            {
+                "tableName": label,
+                "rows": len(frame),
+                "issueCount": len(issues),
+                "issues": [quality_issue_payload(issue) for issue in issues[:25]],
+                "coverage": field_coverage(enriched, ENRICHMENT_COLUMNS),
+            }
+        )
+    return {"requestId": request_id(), "tables": table_payloads, "providerFreshness": provider_freshness_report(DATABASE_URL)}
 
 
 @router.get("/safeguards", response_model=ProductSafeguardsResponse)

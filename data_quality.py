@@ -5,6 +5,7 @@ from typing import Any, Iterable
 
 import pandas as pd
 
+from race_enrichment import MODEL_ENRICHMENT_COLUMNS, enrich_race_frame
 from schema import RACE_COLUMNS, RACE_IDENTITY_COLUMNS
 
 
@@ -14,6 +15,42 @@ class QualityIssue:
     row_number: int | None
     field: str
     message: str
+
+
+def field_coverage(df: pd.DataFrame, fields: Iterable[str]) -> list[dict[str, int | float | str]]:
+    total = int(len(df))
+    rows: list[dict[str, int | float | str]] = []
+    for field in fields:
+        if field not in df.columns:
+            rows.append({"field": field, "total": total, "nonMissing": 0, "coverage": 0.0})
+            continue
+        missing = _missing_mask(df[field]) | df[field].astype(str).str.strip().str.lower().eq("unknown")
+        non_missing = int((~missing).sum())
+        rows.append(
+            {
+                "field": field,
+                "total": total,
+                "nonMissing": non_missing,
+                "coverage": non_missing / total if total else 0.0,
+            }
+        )
+    return rows
+
+
+def enrichment_quality_issues(df: pd.DataFrame, min_coverage: float = 0.75) -> list[QualityIssue]:
+    enriched = enrich_race_frame(df)
+    issues: list[QualityIssue] = []
+    for row in field_coverage(enriched, MODEL_ENRICHMENT_COLUMNS):
+        if row["coverage"] < min_coverage:
+            issues.append(
+                QualityIssue(
+                    "warning",
+                    None,
+                    str(row["field"]),
+                    f"Enriched feature coverage is below {min_coverage:.0%}: {row['coverage']:.0%}.",
+                )
+            )
+    return issues
 
 
 def required_column_issues(df: pd.DataFrame, required_columns: Iterable[str] = RACE_COLUMNS) -> list[QualityIssue]:

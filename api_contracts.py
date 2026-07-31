@@ -102,6 +102,12 @@ class RaceRunner(BaseModel):
 
 
 class PredictionRow(RaceRunner):
+    country: str | None = None
+    course_latitude: float | None = None
+    course_longitude: float | None = None
+    distance_bucket: str | None = None
+    going_category: str | None = None
+    race_type: str | None = None
     race_month: float | None = None
     race_day_of_week: float | None = None
     implied_probability: float | None = None
@@ -203,6 +209,43 @@ class TrendsResponse(BaseModel):
     jockey: List[TrendRow]
     trainer: List[TrendRow]
     owner: List[TrendRow]
+
+
+class DataQualityIssueRow(BaseModel):
+    severity: str
+    rowNumber: int | None = None
+    field: str
+    message: str
+
+
+class FieldCoverageRow(BaseModel):
+    field: str
+    total: int
+    nonMissing: int
+    coverage: float
+
+
+class DataQualityTable(BaseModel):
+    tableName: str
+    rows: int
+    issueCount: int
+    issues: List[DataQualityIssueRow]
+    coverage: List[FieldCoverageRow]
+
+
+class ProviderFreshnessRow(BaseModel):
+    provider: str
+    tableName: str
+    status: str
+    rowCount: int
+    completedAt: str | None = None
+    message: str | None = None
+
+
+class DataQualityResponse(BaseModel):
+    requestId: str
+    tables: List[DataQualityTable]
+    providerFreshness: List[ProviderFreshnessRow]
 
 
 class ModelEvaluation(BaseModel):

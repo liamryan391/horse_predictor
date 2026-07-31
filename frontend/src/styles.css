@@ -413,6 +413,10 @@ dd {
   min-width: 760px;
 }
 
+.compact-table-wrap table {
+  min-width: 640px;
+}
+
 table {
   width: 100%;
   min-width: 920px;

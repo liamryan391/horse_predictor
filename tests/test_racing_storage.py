@@ -20,6 +20,7 @@ from racing_storage import (
     read_prediction_run,
     read_prediction_runs,
     read_races,
+    provider_freshness_report,
     record_model_evaluation_snapshot,
     record_prediction_run,
     release_job_lock,
@@ -45,10 +46,14 @@ class RacingStorageTests(unittest.TestCase):
             self.assertEqual(1, write_races(database_url, TABLES["current"], changed, source="test"))
 
             stored = read_races(database_url, TABLES["current"])
+            freshness = provider_freshness_report(database_url)
+
             self.assertEqual(1, len(stored))
             self.assertEqual(9.9, stored.loc[0, "odds"])
             self.assertEqual(1, table_counts(database_url)["current"])
             self.assertEqual("success", ingestion_status(database_url).loc[0, "status"])
+            self.assertEqual("success", freshness[0]["status"])
+            self.assertEqual(TABLES["current"], freshness[0]["tableName"])
 
     def test_job_lock_prevents_duplicate_ingestion_runs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

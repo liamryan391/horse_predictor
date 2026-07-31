@@ -8,6 +8,7 @@ from typing import Iterable, List, Optional
 import pandas as pd
 import requests
 
+from race_enrichment import enrich_race_frame
 from schema import RACE_COLUMNS
 
 
@@ -190,7 +191,10 @@ def normalize_provider_records(records: Iterable[dict], current_mode: bool = Fal
         "past_bets_count",
         "past_bets_profit",
     ]:
-        df[column] = pd.to_numeric(df[column], errors="coerce")
+        if column == "distance":
+            df[column] = df[column].map(parse_distance)
+        else:
+            df[column] = pd.to_numeric(df[column], errors="coerce")
 
     issues: list[ValidationIssue] = []
     required = ["race_date", "track", "horse"]
@@ -223,7 +227,7 @@ def normalize_provider_records(records: Iterable[dict], current_mode: bool = Fal
                 )
             )
 
-    return df.loc[~invalid_mask].reset_index(drop=True), issues
+    return enrich_race_frame(df.loc[~invalid_mask].reset_index(drop=True)), issues
 
 
 def summarize_validation_issues(issues: list[ValidationIssue]) -> str | None:

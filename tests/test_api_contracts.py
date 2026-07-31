@@ -10,8 +10,9 @@ _TEMP_DIR = tempfile.TemporaryDirectory()
 os.environ["DATABASE_URL"] = f"sqlite:///{(Path(_TEMP_DIR.name) / 'api_contracts.db').as_posix()}"
 os.environ["MODEL_ARTIFACT_DIR"] = str(Path(_TEMP_DIR.name) / "artifacts")
 
-from api import SETTINGS, approve_model, capture_model_evaluation, capture_prediction_run, entity_profile, health, meetings, model_registry, model_status, normalize_request_id, prediction_run_detail, prediction_runs, predictions, race_card, ready, safeguards, summary
+from api import SETTINGS, approve_model, capture_model_evaluation, capture_prediction_run, data_quality as api_data_quality, entity_profile, health, meetings, model_registry, model_status, normalize_request_id, prediction_run_detail, prediction_runs, predictions, race_card, ready, safeguards, summary
 from api_contracts import (
+    DataQualityResponse,
     HealthResponse,
     ModelRegistryResponse,
     ModelSnapshotResponse,
@@ -47,6 +48,16 @@ class APIContractTests(unittest.TestCase):
 
         self.assertIn(response.dataFreshness.status, {"fresh", "stale", "missing", "unknown"})
         self.assertEqual(response.lastRefresh, response.dataFreshness.lastRefresh)
+
+    def test_data_quality_endpoint_exposes_enrichment_coverage(self) -> None:
+        response = DataQualityResponse(**api_data_quality())
+        tables = {table.tableName: table for table in response.tables}
+
+        self.assertIn("historical", tables)
+        self.assertIn("current", tables)
+        self.assertGreaterEqual(len(tables["historical"].coverage), 4)
+        self.assertTrue(any(row.field == "country" and row.coverage == 1.0 for row in tables["historical"].coverage))
+        self.assertTrue(response.providerFreshness)
 
     def test_safeguards_endpoint_exposes_launch_policy_contract(self) -> None:
         response = ProductSafeguardsResponse(**safeguards())

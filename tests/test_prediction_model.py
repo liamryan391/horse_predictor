@@ -32,6 +32,10 @@ class PredictionModelTests(unittest.TestCase):
 
         self.assertNotIn("finishing_position", model.feature_columns)
         self.assertNotIn("is_winner", model.feature_columns)
+        self.assertIn("country", model.feature_columns)
+        self.assertIn("distance_bucket", model.feature_columns)
+        self.assertIn("going_category", model.feature_columns)
+        self.assertIn("race_type", model.feature_columns)
         self.assertEqual([], leakage_features(model.feature_columns))
 
         with self.assertRaises(ValueError):
@@ -51,11 +55,21 @@ class PredictionModelTests(unittest.TestCase):
     def test_feature_table_adds_pre_race_context_features(self) -> None:
         features = build_feature_table(self.history)
 
-        for column in ["field_size", "odds_rank", "relative_speed_rating", "relative_class_rating"]:
+        for column in [
+            "country",
+            "distance_bucket",
+            "going_category",
+            "race_type",
+            "field_size",
+            "odds_rank",
+            "relative_speed_rating",
+            "relative_class_rating",
+        ]:
             self.assertIn(column, features.columns)
 
         ascot_rows = features[features["track"] == "Ascot"]
         self.assertEqual([2, 2], ascot_rows["field_size"].tolist())
+        self.assertEqual(["GB"], ascot_rows["country"].dropna().unique().tolist())
 
     def test_model_artifact_roundtrip_keeps_predictions_deterministic(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

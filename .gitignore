@@ -1,5 +1,6 @@
 .venv/
 .codex_tmp/
+.phase13-smoke/
 __pycache__/
 *.py[cod]
 *.db

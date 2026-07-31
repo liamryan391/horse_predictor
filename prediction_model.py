@@ -22,6 +22,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from racing_storage import RACE_COLUMNS
+from race_enrichment import MODEL_ENRICHMENT_COLUMNS, distance_to_yards, enrich_race_frame
 
 RACE_GROUP_COLUMNS = ["race_date", "track", "distance"]
 RESULT_LEAKAGE_COLUMNS = {"finishing_position", "is_winner"}
@@ -253,8 +254,11 @@ def coerce_race_frame(df: pd.DataFrame) -> pd.DataFrame:
         "past_bets_profit",
     ]
     for column in numeric_columns:
-        work_df[column] = pd.to_numeric(work_df[column], errors="coerce")
-    return work_df
+        if column == "distance":
+            work_df[column] = work_df[column].map(distance_to_yards)
+        else:
+            work_df[column] = pd.to_numeric(work_df[column], errors="coerce")
+    return enrich_race_frame(work_df)
 
 
 def iso_date(value) -> str | None:
@@ -293,7 +297,7 @@ def build_feature_table(df: pd.DataFrame) -> pd.DataFrame:
     work_df = add_pre_race_features(work_df)
     work_df["is_winner"] = (work_df["finishing_position"] == 1).astype(int)
 
-    columns = RACE_COLUMNS + [
+    columns = RACE_COLUMNS + MODEL_ENRICHMENT_COLUMNS + [
         "race_month",
         "race_day_of_week",
         "implied_probability",

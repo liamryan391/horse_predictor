@@ -41,6 +41,9 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual("Golden Arrow", frame.loc[0, "horse"])
         self.assertEqual(2200.0, frame.loc[0, "distance"])
         self.assertEqual(3.4, frame.loc[0, "odds"])
+        self.assertEqual("GB", frame.loc[0, "country"])
+        self.assertEqual("middle", frame.loc[0, "distance_bucket"])
+        self.assertEqual("good", frame.loc[0, "going_category"])
         self.assertFalse([issue for issue in issues if issue.severity == "error"])
 
     def test_provider_validation_summarizes_missing_required_fields(self) -> None:

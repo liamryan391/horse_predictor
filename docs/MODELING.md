@@ -15,6 +15,10 @@ Result-only fields are blocked from model inputs:
 
 The shared model module builds these race-context features for both training and scoring:
 
+- `country`
+- `distance_bucket`
+- `going_category`
+- `race_type`
 - `implied_probability`
 - `field_size`
 - `odds_rank`
@@ -22,6 +26,8 @@ The shared model module builds these race-context features for both training and
 - `relative_class_rating`
 
 These features are based on race-card information that should be knowable before the race.
+
+Course metadata, distance buckets, going categories, and race type are derived by `race_enrichment.py`. Coverage is visible through `/api/v1/data-quality` and can be enforced during production readiness checks with `--require-enriched-data`.
 
 ## Holdout Evaluation
 

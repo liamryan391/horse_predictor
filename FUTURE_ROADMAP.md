@@ -12,13 +12,14 @@ This document captures longer-term development ideas for Horse Predictor after `
 
 ## Data And Provider Strategy
 
-Longer-term model quality will depend on richer racing context than the current sample-compatible flat schema can provide.
+Longer-term model quality will depend on richer racing context than the current sample-compatible flat schema can provide. Phase 13 added a first enrichment layer for course metadata, distance buckets, going categories, race type, provider freshness, and weather-provider checks.
 
 Future ideas:
 
 - Build a provider comparison matrix for The Racing API, OurHub Racing API, Odds API, Betfair, and any official/licensed racing data partners.
 - Add a provider abstraction for racecards, results, runner history, odds snapshots, ratings, course metadata, and market movements.
 - Store provider provenance on every imported row so model outputs can be traced back to source and timestamp.
+- Expand the curated course metadata list and replace manual coordinates with governed provider or official course references.
 - Add regional provider support only where the app has enough historical depth to evaluate fairly.
 - Add provider cost, quota, terms, and redistribution notes to operational docs before production use.
 

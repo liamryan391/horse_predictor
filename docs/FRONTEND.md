@@ -24,6 +24,7 @@ The workspace combines:
 - runner comparison
 - model evaluation panel
 - model registry with artifact readiness and recent prediction-run tables
+- data-quality panel with enrichment coverage and provider freshness
 - trend tables
 - dark and light themes
 - loading skeletons and retryable API errors

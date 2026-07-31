@@ -59,6 +59,23 @@ The validator records warnings for prediction-useful fields that are missing or 
 
 Validation summaries are written into ingestion-run messages when rows are saved.
 
+## Enrichment
+
+Phase 13 adds deterministic enrichment after provider normalization:
+
+- course country and coordinates for known tracks
+- distance buckets such as sprint, mile, middle, and staying
+- going categories from surface/weather text
+- race type buckets for flat turf, all-weather, jumps, and unknown
+
+The enriched columns are used by model feature creation and `/api/v1/data-quality`. The compatibility race tables still store the base race schema; enrichment is derived at read/scoring time so provider licensing and schema decisions can evolve without a database migration for every derived field.
+
+Run the provider-depth smoke check for local course metadata and optional Open-Meteo historical weather:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\provider-depth-check.py --track York --race-date 2025-03-18
+```
+
 ## Failure Logging
 
 Provider fetch failures are recorded in `api_ingestion_runs` with:

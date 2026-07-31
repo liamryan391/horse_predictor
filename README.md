@@ -6,8 +6,8 @@ Professional horse racing intelligence platform powered by API ingestion, MySQL-
 
 - `data_pipeline.py`: pulls sample or API data and writes SQL tables.
 - `racing_storage.py`: SQLAlchemy storage layer for MySQL in production and SQLite for local development.
-- `api.py`: FastAPI service for predictions, prediction-run history, trends, race cards, and ingestion health.
-- `frontend/`: React + TypeScript website with Home, About Us, and Race Lab pages.
+- `api.py`: FastAPI service for predictions, prediction-run history, trends, race cards, data quality, and ingestion health.
+- `frontend/`: React + TypeScript racing workspace with rankings, race cards, evaluation, provider freshness, and bet journal pages.
 - `horse_racing_app.py`: legacy Streamlit dashboard kept for quick internal checks.
 
 ## Database choice
@@ -151,6 +151,8 @@ Optional model features:
 - `past_bets_profit`
 - `weather`
 
+Phase 13 also derives model enrichment fields from the above data: course country/coordinates, distance bucket, going category, and race type.
+
 ## Notes
 
 This is decision-support software, not guaranteed betting advice. Model quality depends on the amount, accuracy, and freshness of historical results. For production, add authentication, managed hosting, larger provider history, and governed model promotion.
@@ -161,6 +163,7 @@ See [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) for imported project cont
 See [docs/SETUP.md](docs/SETUP.md) for Windows, Linux/macOS, Docker, and configuration setup.
 See [docs/DATABASE.md](docs/DATABASE.md) for schema, migration, and ingestion-write notes.
 See [docs/INGESTION.md](docs/INGESTION.md) for provider adapter, validation, retry, and failure logging notes.
+See [docs/PROVIDER_DEPTH.md](docs/PROVIDER_DEPTH.md) for course metadata, weather checks, enrichment coverage, and provider-depth gates.
 See [docs/MODELING.md](docs/MODELING.md) for leakage checks, holdout evaluation, and backtesting metric notes.
 See [docs/API.md](docs/API.md) for versioned backend endpoints, pagination, request IDs, and API security notes.
 See [docs/FRONTEND.md](docs/FRONTEND.md) for the professional workspace, bet journal, theme, and frontend UX notes.

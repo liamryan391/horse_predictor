@@ -204,7 +204,7 @@ Potential features include:
 - Odds movement.
 - Field size.
 
-Current inspection: the shared model module now adds pre-race context features for implied probability, field size, odds rank, relative speed rating, and relative class rating.
+Current inspection: the shared model module now adds pre-race context features for country, distance bucket, going category, race type, implied probability, field size, odds rank, relative speed rating, and relative class rating.
 
 ### 4.3 Proper Validation
 
@@ -483,6 +483,6 @@ Current inspection: Phase 11 persists scoring snapshots. Phase 12 now links pred
 
 ## Continued Planning
 
-The next build plan continues in `ROADMAP02.md`. Phase 12: Artifact-Backed Model Serving is implemented; the next planned stage is Phase 13: Data Enrichment And Provider Depth.
+The next build plan continues in `ROADMAP02.md`. Phase 12: Artifact-Backed Model Serving and Phase 13: Data Enrichment And Provider Depth are implemented; the next planned stage is Phase 14: Race Centre UX.
 
 Longer-term product, data, modelling, governance, and monitoring ideas are captured in `FUTURE_ROADMAP.md`.

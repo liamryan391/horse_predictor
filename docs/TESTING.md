@@ -19,6 +19,7 @@ The suite covers:
 - SQLite repository upsert behavior
 - Alembic upgrade/downgrade roundtrip
 - sample data quality gates
+- enrichment coverage and course/weather URL checks
 - model calibration and market-baseline checks
 - model artifact save/load determinism and artifact-backed API serving
 
@@ -56,6 +57,13 @@ Run the production-readiness API smoke check against a live API:
 Add `--require-approved-model` for staging or production once a model version has been recorded and approved.
 Add `--require-approved-artifact` when acceptance should also prove that the approved model has artifact integrity metadata.
 Add `--require-prediction-run` when acceptance should also prove that at least one scored race-card snapshot has been persisted.
+Add `--require-enriched-data` when acceptance should also prove that core enrichment fields meet the configured coverage threshold.
+
+Run the provider-depth check with live weather-provider access:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\provider-depth-check.py --track York --race-date 2025-03-18
+```
 
 When `agent-browser` is available on PATH, use it for the visual pass:
 

@@ -15,6 +15,7 @@ Core endpoints:
 - `GET /api/v1/health`
 - `GET /api/v1/ready`
 - `GET /api/v1/summary`
+- `GET /api/v1/data-quality`
 - `GET /api/v1/safeguards`
 - `GET /api/v1/meetings`
 - `GET /api/v1/races`
@@ -117,6 +118,16 @@ Use a gateway or hosting-platform limiter for production traffic; the built-in l
 - `DATA_LICENSE_REFERENCE`
 
 The React Responsible Use page reads this endpoint and falls back to the built-in launch-safe wording if the API is unavailable.
+
+## Data Quality
+
+`GET /api/v1/data-quality` returns row-quality issues, enrichment coverage, and provider freshness:
+
+- `tables[].issues` contains required-field, invalid odds/result, duplicate identity, and enrichment-coverage issues.
+- `tables[].coverage` reports coverage for course country, coordinates, distance bucket, going category, and race type.
+- `providerFreshness` reports the latest ingestion status per provider/table from `api_ingestion_runs`.
+
+The React Evaluation view displays this response beside model registry and prediction-run snapshots.
 
 ## Model Registry
 

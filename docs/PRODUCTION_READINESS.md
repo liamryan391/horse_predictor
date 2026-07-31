@@ -46,10 +46,10 @@ Before launch, prove that production data can be restored into an isolated stagi
 5. Run acceptance checks:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\production-readiness-check.py --base-url https://horse-predictor-api-staging.example.com --require-policy-links --require-approved-artifact
+.\.venv\Scripts\python.exe scripts\production-readiness-check.py --base-url https://horse-predictor-api-staging.example.com --require-policy-links --require-approved-artifact --require-enriched-data
 ```
 
-6. Confirm `/api/v1/summary` reports fresh data, `/api/v1/model/evaluation` is acceptable for launch, and `/api/v1/model` reports `servingMode=artifact`.
+6. Confirm `/api/v1/summary` reports fresh data, `/api/v1/data-quality` reports acceptable enrichment coverage, `/api/v1/model/evaluation` is acceptable for launch, and `/api/v1/model` reports `servingMode=artifact`.
 
 ## Product Safeguards
 
@@ -98,6 +98,7 @@ Model approval:
 When production is expected to have an approved model, add `--require-approved-model` to `scripts/production-readiness-check.py`.
 When production is expected to serve from a persisted artifact, add `--require-approved-artifact`.
 When production is expected to have persisted scoring evidence, add `--require-prediction-run` too.
+When production is expected to have provider-grade enrichment coverage, add `--require-enriched-data`.
 
 Monitored release:
 

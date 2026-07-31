@@ -71,6 +71,8 @@ Goal: improve model inputs with provider-grade racing context rather than relyin
 - Score each provider for cost, historical depth, racecard fields, odds history, rate limits, redistribution rights, and support.
 - Choose one primary provider and one fallback provider.
 
+Current inspection: The project now has a provider-depth smoke script and docs for live Open-Meteo weather checks, while real racing provider selection remains a licensing/commercial decision. The Racing API and OurHub adapters remain available behind credentials.
+
 ### 13.2 Race Context Enrichment
 
 - Add official ratings import where licensing permits, starting with the BHA ratings export for British runners.
@@ -78,11 +80,15 @@ Goal: improve model inputs with provider-grade racing context rather than relyin
 - Add going/weather enrichment using Open-Meteo forecast and historical data by course coordinates.
 - Add odds movement snapshots when provider terms permit display and storage.
 
+Current inspection: `race_enrichment.py` now derives course country/coordinates, distance buckets, going categories, and race type for training, scoring, API prediction rows, and provider adapter outputs. Open-Meteo historical daily weather lookup is available through `scripts/provider-depth-check.py`.
+
 ### 13.3 Data Quality Gates
 
 - Add provider freshness checks per table, not only globally.
 - Track missing-value rates by field and provider.
 - Reject model training when key features have drifted or dropped below coverage thresholds.
+
+Current inspection: `/api/v1/data-quality` reports row-quality issues, enrichment coverage, and latest provider freshness per provider/table. The React Evaluation view displays this signal, and `scripts/production-readiness-check.py --require-enriched-data` can enforce core enrichment coverage.
 
 ## Phase 14: Race Centre UX
 
@@ -184,6 +190,6 @@ Goal: turn the current manual validation list into repeatable automation.
 
 ## Recommended Next Phase
 
-Start with Phase 13: Data Enrichment And Provider Depth.
+Start with Phase 14: Race Centre UX.
 
-Reason: Phase 12 now makes model approval meaningful in production by serving from persisted artifacts. The next quality jump should come from better licensed racing context, provider depth, field coverage, weather/going enrichment, and data-quality gates before adding more complex product surfaces.
+Reason: Phase 13 now makes data coverage and provider depth visible enough to guard scoring. The next useful product jump is a race-by-race operating centre that shows runners, enrichment context, model rank, market odds, value edge, and uncertainty in one focused view.

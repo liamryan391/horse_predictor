@@ -21,6 +21,7 @@ from sqlalchemy import (
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 
+from race_enrichment import MODEL_ENRICHMENT_COLUMNS, distance_to_yards
 from schema import METADATA, NUMERIC_COLUMNS, RACE_COLUMNS, RACE_IDENTITY_COLUMNS, TABLES, VALID_TABLES
 from settings import resolve_database_url
 
@@ -112,7 +113,10 @@ def normalize_race_frame(df: pd.DataFrame, current_mode: bool = False) -> pd.Dat
 
     work_df["race_date"] = pd.to_datetime(work_df["race_date"], errors="coerce").dt.date
     for column in NUMERIC_COLUMNS:
-        work_df[column] = pd.to_numeric(work_df[column], errors="coerce")
+        if column == "distance":
+            work_df[column] = work_df[column].map(distance_to_yards)
+        else:
+            work_df[column] = pd.to_numeric(work_df[column], errors="coerce")
 
     if current_mode:
         work_df["finishing_position"] = work_df["finishing_position"].fillna(0)
@@ -462,6 +466,7 @@ def read_latest_approved_model_version(database_url: str | Path | None) -> dict[
 
 def _prediction_feature_payload(row: dict[str, Any]) -> dict[str, Any]:
     feature_columns = [
+        *MODEL_ENRICHMENT_COLUMNS,
         "race_month",
         "race_day_of_week",
         "implied_probability",
@@ -778,6 +783,43 @@ def ingestion_status(database_url: str | Path | None) -> pd.DataFrame:
             )
     finally:
         engine.dispose()
+
+
+def provider_freshness_report(database_url: str | Path | None) -> list[dict[str, Any]]:
+    init_db(database_url)
+    engine = get_engine(database_url)
+    try:
+        with engine.connect() as conn:
+            rows = (
+                conn.execute(
+                    select(METADATA.tables["api_ingestion_runs"])
+                    .order_by(
+                        METADATA.tables["api_ingestion_runs"].c.provider.asc(),
+                        METADATA.tables["api_ingestion_runs"].c.target_table.asc(),
+                        METADATA.tables["api_ingestion_runs"].c.completed_at.desc(),
+                        METADATA.tables["api_ingestion_runs"].c.id.desc(),
+                    )
+                )
+                .mappings()
+                .all()
+            )
+    finally:
+        engine.dispose()
+
+    latest: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in rows:
+        key = (row["provider"], row["target_table"])
+        if key in latest:
+            continue
+        latest[key] = {
+            "provider": row["provider"],
+            "tableName": row["target_table"],
+            "status": row["status"],
+            "rowCount": row["row_count"],
+            "completedAt": _iso_value(row.get("completed_at")),
+            "message": row.get("message"),
+        }
+    return list(latest.values())
 
 
 def seed_database_from_samples(

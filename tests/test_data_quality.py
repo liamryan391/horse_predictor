@@ -5,7 +5,8 @@ import unittest
 
 import pandas as pd
 
-from data_quality import model_quality_issues, race_row_quality_issues
+from data_quality import enrichment_quality_issues, field_coverage, model_quality_issues, race_row_quality_issues
+from race_enrichment import MODEL_ENRICHMENT_COLUMNS, enrich_race_frame
 from prediction_model import build_feature_table, evaluate_model
 
 
@@ -19,6 +20,27 @@ class DataQualityTests(unittest.TestCase):
 
         self.assertEqual([], race_row_quality_issues(historical))
         self.assertEqual([], race_row_quality_issues(current, current_mode=True))
+        self.assertEqual([], enrichment_quality_issues(historical))
+
+        coverage = {row["field"]: row["coverage"] for row in field_coverage(enrich_race_frame(historical), MODEL_ENRICHMENT_COLUMNS)}
+
+        self.assertEqual(1.0, coverage["country"])
+        self.assertEqual(1.0, coverage["distance_bucket"])
+        self.assertEqual(1.0, coverage["going_category"])
+        self.assertEqual(1.0, coverage["race_type"])
+
+    def test_enrichment_quality_reports_low_course_coverage(self) -> None:
+        rows = pd.DataFrame(
+            [
+                {"race_date": "2026-05-05", "track": "Unknown", "distance": 1600, "surface": "Mystery", "weather": ""},
+            ]
+        )
+
+        fields = {issue.field for issue in enrichment_quality_issues(rows, min_coverage=0.75)}
+
+        self.assertIn("country", fields)
+        self.assertIn("going_category", fields)
+        self.assertIn("race_type", fields)
 
     def test_invalid_rows_report_required_odds_result_and_duplicate_issues(self) -> None:
         historical = pd.read_csv(ROOT / "sample_historical_data.csv").head(1)

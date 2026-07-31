@@ -13,6 +13,7 @@ REQUIRED_ENDPOINTS = [
     "/api/v1/health",
     "/api/v1/ready",
     "/api/v1/summary",
+    "/api/v1/data-quality",
     "/api/v1/safeguards",
     "/api/v1/model/registry",
     "/api/v1/model/evaluation",
@@ -21,6 +22,7 @@ REQUIRED_ENDPOINTS = [
 ]
 
 REQUIRED_POLICY_LINKS = ["responsibleGambling", "privacyPolicy", "termsOfUse"]
+REQUIRED_ENRICHMENT_FIELDS = ["country", "distance_bucket", "going_category", "race_type"]
 REQUIRED_SECURITY_HEADERS = [
     "cache-control",
     "cross-origin-opener-policy",
@@ -63,6 +65,7 @@ def check_readiness(payloads: dict[str, dict[str, Any]], args: argparse.Namespac
     ready = payloads["/api/v1/ready"]
     summary = payloads["/api/v1/summary"]
     safeguards = payloads["/api/v1/safeguards"]
+    data_quality = payloads["/api/v1/data-quality"]
     registry = payloads["/api/v1/model/registry"]
     prediction_runs = payloads["/api/v1/prediction-runs"]
 
@@ -111,6 +114,22 @@ def check_readiness(payloads: dict[str, dict[str, Any]], args: argparse.Namespac
         runs = prediction_runs.get("runs") or []
         require(bool(runs), "At least one persisted prediction run must exist in /api/v1/prediction-runs.", failures)
 
+    if args.require_enriched_data:
+        quality_tables = data_quality.get("tables") or []
+        require(bool(quality_tables), "/api/v1/data-quality must include table coverage.", failures)
+        for table in quality_tables:
+            coverage = {row.get("field"): row.get("coverage") for row in table.get("coverage") or []}
+            low_fields = [
+                field
+                for field in REQUIRED_ENRICHMENT_FIELDS
+                if not isinstance(coverage.get(field), (float, int)) or coverage[field] < args.min_enrichment_coverage
+            ]
+            require(
+                not low_fields,
+                f"{table.get('tableName')} enrichment coverage below {args.min_enrichment_coverage:.0%}: {', '.join(low_fields)}.",
+                failures,
+            )
+
     return failures
 
 
@@ -135,6 +154,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--require-approved-model", action="store_true", help="Require an approved model version in the model registry.")
     parser.add_argument("--require-approved-artifact", action="store_true", help="Require an approved model version with artifact integrity metadata.")
     parser.add_argument("--require-prediction-run", action="store_true", help="Require at least one persisted prediction run.")
+    parser.add_argument("--require-enriched-data", action="store_true", help="Require core enrichment fields to meet the coverage threshold.")
+    parser.add_argument("--min-enrichment-coverage", type=float, default=0.75, help="Minimum required coverage for core enrichment fields.")
     parser.add_argument("--require-hsts", action="store_true", help="Require Strict-Transport-Security for HTTPS deployments.")
     return parser.parse_args(argv)
 
