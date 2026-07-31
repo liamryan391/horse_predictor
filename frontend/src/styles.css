@@ -352,6 +352,11 @@ select {
   padding: 16px;
 }
 
+.registry-panel {
+  display: grid;
+  gap: 14px;
+}
+
 .comparison-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -404,6 +409,10 @@ dd {
   box-shadow: var(--shadow);
 }
 
+.registry-table-wrap table {
+  min-width: 760px;
+}
+
 table {
   width: 100%;
   min-width: 920px;
@@ -427,6 +436,43 @@ th {
 
 td {
   color: var(--text);
+}
+
+.table-subtext {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.status-pill {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 0 10px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.status-pill.approved {
+  border-color: color-mix(in srgb, var(--good) 55%, var(--line));
+  background: color-mix(in srgb, var(--good) 14%, var(--panel));
+  color: var(--good);
+}
+
+.status-pill.candidate {
+  border-color: color-mix(in srgb, var(--gold) 55%, var(--line));
+  background: color-mix(in srgb, var(--gold) 14%, var(--panel));
+  color: var(--gold);
+}
+
+.status-pill.superseded {
+  color: var(--muted);
 }
 
 .positive {

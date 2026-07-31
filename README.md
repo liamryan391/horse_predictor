@@ -164,3 +164,4 @@ See [docs/FRONTEND.md](docs/FRONTEND.md) for the professional workspace, bet jou
 See [docs/TESTING.md](docs/TESTING.md) for automated backend, data/model, frontend utility, and browser smoke checks.
 See [docs/CLOUD_STAGING.md](docs/CLOUD_STAGING.md) for staging deployment, migration, ingestion worker, and observability notes.
 See [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) for security, safeguards, launch acceptance, and rollback gates.
+See [docs/MODEL_OPERATIONS.md](docs/MODEL_OPERATIONS.md) for persisted model snapshots, approval, and registry workflow.

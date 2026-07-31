@@ -205,6 +205,31 @@ class ModelEvaluationResponse(BaseModel):
     evaluation: ModelEvaluation
 
 
+class ModelRegistryRow(BaseModel):
+    id: int
+    name: str
+    algorithm: str
+    status: str
+    featureCount: int
+    trainingStart: str | None = None
+    trainingEnd: str | None = None
+    artifactUri: str | None = None
+    createdAt: str | None = None
+    updatedAt: str | None = None
+    metrics: Dict[str, float | int | None]
+
+
+class ModelRegistryResponse(BaseModel):
+    requestId: str
+    models: List[ModelRegistryRow]
+    page: PageMeta
+
+
+class ModelSnapshotResponse(BaseModel):
+    requestId: str
+    model: ModelRegistryRow
+
+
 class IngestionRow(BaseModel):
     table_name: str | None = None
     source: str | None = None

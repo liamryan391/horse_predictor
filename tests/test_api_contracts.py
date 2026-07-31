@@ -9,9 +9,11 @@ import unittest
 _TEMP_DIR = tempfile.TemporaryDirectory()
 os.environ["DATABASE_URL"] = f"sqlite:///{(Path(_TEMP_DIR.name) / 'api_contracts.db').as_posix()}"
 
-from api import SETTINGS, entity_profile, health, meetings, normalize_request_id, predictions, race_card, ready, safeguards, summary
+from api import SETTINGS, capture_model_evaluation, entity_profile, health, meetings, model_registry, normalize_request_id, predictions, race_card, ready, safeguards, summary
 from api_contracts import (
     HealthResponse,
+    ModelRegistryResponse,
+    ModelSnapshotResponse,
     PredictionsResponse,
     ProductSafeguardsResponse,
     RaceCardResponse,
@@ -51,6 +53,14 @@ class APIContractTests(unittest.TestCase):
         self.assertIn("responsibleGambling", response.links)
         self.assertIn("privacyPolicy", response.links)
         self.assertIn("termsOfUse", response.links)
+
+    def test_model_registry_exposes_persisted_evaluation_snapshots(self) -> None:
+        snapshot = ModelSnapshotResponse(**capture_model_evaluation(None))
+        response = ModelRegistryResponse(**model_registry())
+
+        self.assertGreaterEqual(response.page.total, 1)
+        self.assertEqual(snapshot.model.id, response.models[0].id)
+        self.assertIn("runner_brier_score", response.models[0].metrics)
 
     def test_request_id_sanitizer_rejects_unsafe_values(self) -> None:
         self.assertEqual("trace-123_:.ok", normalize_request_id("trace-123_:.ok"))

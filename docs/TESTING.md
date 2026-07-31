@@ -51,6 +51,8 @@ Run the production-readiness API smoke check against a live API:
 .\.venv\Scripts\python.exe scripts\production-readiness-check.py --base-url http://127.0.0.1:8000
 ```
 
+Add `--require-approved-model` for staging or production once a model version has been recorded and approved.
+
 When `agent-browser` is available on PATH, use it for the visual pass:
 
 ```powershell

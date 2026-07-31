@@ -14,6 +14,7 @@ REQUIRED_ENDPOINTS = [
     "/api/v1/ready",
     "/api/v1/summary",
     "/api/v1/safeguards",
+    "/api/v1/model/registry",
     "/api/v1/model/evaluation",
     "/api/v1/ingestion-status",
 ]
@@ -61,6 +62,7 @@ def check_readiness(payloads: dict[str, dict[str, Any]], args: argparse.Namespac
     ready = payloads["/api/v1/ready"]
     summary = payloads["/api/v1/summary"]
     safeguards = payloads["/api/v1/safeguards"]
+    registry = payloads["/api/v1/model/registry"]
 
     require(ready.get("status") == "ok" or args.allow_degraded, "/api/v1/ready must return status=ok.", failures)
     require(bool(ready.get("databaseReady")) or args.allow_degraded, "Database readiness must be true.", failures)
@@ -85,6 +87,11 @@ def check_readiness(payloads: dict[str, dict[str, Any]], args: argparse.Namespac
         missing = [link for link in REQUIRED_POLICY_LINKS if not links.get(link)]
         require(not missing, f"Policy links must be configured: {', '.join(missing)}.", failures)
 
+    if args.require_approved_model:
+        models = registry.get("models") or []
+        approved = [model for model in models if model.get("status") == "approved"]
+        require(bool(approved), "At least one approved model version must exist in /api/v1/model/registry.", failures)
+
     return failures
 
 
@@ -106,6 +113,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--allow-stale", action="store_true", help="Do not fail when dataFreshness.status is not fresh.")
     parser.add_argument("--allow-degraded", action="store_true", help="Do not fail when /ready is degraded.")
     parser.add_argument("--require-policy-links", action="store_true", help="Require responsible gambling, privacy, and terms URLs.")
+    parser.add_argument("--require-approved-model", action="store_true", help="Require an approved model version in the model registry.")
     parser.add_argument("--require-hsts", action="store_true", help="Require Strict-Transport-Security for HTTPS deployments.")
     return parser.parse_args(argv)
 

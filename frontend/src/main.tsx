@@ -111,6 +111,20 @@ type ModelStatus = {
   evaluation: ModelEvaluation;
 };
 
+type ModelRegistryRow = {
+  id: number;
+  name: string;
+  algorithm: string;
+  status: string;
+  featureCount: number;
+  trainingStart: string | null;
+  trainingEnd: string | null;
+  artifactUri: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  metrics: EvaluationMetrics;
+};
+
 type EvaluationMetrics = {
   runner_log_loss?: number | null;
   runner_brier_score?: number | null;
@@ -332,6 +346,7 @@ function Workspace() {
   const [raceCard, setRaceCard] = useState<RaceRunner[]>([]);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [model, setModel] = useState<ModelStatus | null>(null);
+  const [modelRegistry, setModelRegistry] = useState<ModelRegistryRow[]>([]);
   const [trends, setTrends] = useState<Trends | null>(null);
   const [track, setTrack] = useState(() => localStorageValue(TRACK_FILTER_KEY, "All tracks"));
   const [search, setSearch] = useState("");
@@ -343,11 +358,12 @@ function Workspace() {
     setLoading(true);
     setError(null);
     try {
-      const [summaryResult, predictionResult, modelResult, trendResult, meetingResult, raceCardResult] =
+      const [summaryResult, predictionResult, modelResult, modelRegistryResult, trendResult, meetingResult, raceCardResult] =
         await Promise.all([
           apiGet<Summary>("/summary"),
           apiGet<{ predictions: Prediction[]; page: PageMeta }>("/predictions?limit=500"),
           apiGet<ModelStatus>("/model"),
+          apiGet<{ models: ModelRegistryRow[]; page: PageMeta }>("/model/registry?limit=10"),
           apiGet<Trends>("/trends"),
           apiGet<{ meetings: Meeting[]; page: PageMeta }>("/meetings?limit=200"),
           apiGet<{ raceCard: RaceRunner[]; page: PageMeta }>("/race-card?limit=500")
@@ -355,6 +371,7 @@ function Workspace() {
       setSummary(summaryResult);
       setPredictions(predictionResult.predictions);
       setModel(modelResult);
+      setModelRegistry(modelRegistryResult.models);
       setTrends(trendResult);
       setMeetings(meetingResult.meetings);
       setRaceCard(raceCardResult.raceCard);
@@ -485,7 +502,12 @@ function Workspace() {
           <RunnerComparison first={topRunner} second={secondRunner} />
           {view === "rankings" && <PredictionTable rows={filteredPredictions} loading={loading} />}
           {view === "race-card" && <RaceCardTable rows={filteredRaceCard} loading={loading} />}
-          {view === "evaluation" && model?.evaluation && <EvaluationPanel evaluation={model.evaluation} model={model} />}
+          {view === "evaluation" && model?.evaluation && (
+            <>
+              <EvaluationPanel evaluation={model.evaluation} model={model} />
+              <ModelRegistryTable rows={modelRegistry} />
+            </>
+          )}
           {view === "trends" && <TrendGrid trends={trends} />}
         </section>
       </div>
@@ -595,6 +617,60 @@ function EvaluationPanel({ evaluation, model }: { evaluation: ModelEvaluation; m
       </div>
       <div className="calibration-bar" aria-label="Calibration gap">
         <span style={{ width: `${calibration * 100}%` }} />
+      </div>
+    </section>
+  );
+}
+
+function ModelRegistryTable({ rows }: { rows: ModelRegistryRow[] }) {
+  return (
+    <section className="registry-panel">
+      <div className="evaluation-header">
+        <Database size={20} />
+        <div>
+          <h2>Model Registry</h2>
+          <span>Persisted candidate and approved evaluation snapshots.</span>
+        </div>
+      </div>
+      <div className="table-wrap registry-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Name</th>
+              <th>Training window</th>
+              <th>Top-pick holdout</th>
+              <th>Market top pick</th>
+              <th>Brier score</th>
+              <th>Recorded</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.id}>
+                <td>
+                  <span className={`status-pill ${row.status}`}>{row.status}</span>
+                </td>
+                <td>
+                  <strong>{row.name}</strong>
+                  <span className="table-subtext">{row.algorithm} / {row.featureCount} features</span>
+                </td>
+                <td>
+                  {formatDate(row.trainingStart)} to {formatDate(row.trainingEnd)}
+                </td>
+                <td>{formatPercent(row.metrics.top_pick_win_rate)}</td>
+                <td>{formatPercent(row.metrics.market_top_pick_win_rate)}</td>
+                <td>{formatNumber(row.metrics.runner_brier_score, 3)}</td>
+                <td>{formatDate(row.createdAt)}</td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={7}>No persisted model snapshots yet.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </section>
   );

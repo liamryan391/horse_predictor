@@ -10,7 +10,19 @@ from alembic.config import Config
 import pandas as pd
 from sqlalchemy import create_engine, inspect
 
-from racing_storage import TABLES, ingestion_status, read_races, release_job_lock, table_counts, try_acquire_job_lock, write_races
+from prediction_model import build_feature_table, evaluate_model, train_model
+from racing_storage import (
+    TABLES,
+    approve_model_version,
+    ingestion_status,
+    read_model_registry,
+    read_races,
+    record_model_evaluation_snapshot,
+    release_job_lock,
+    table_counts,
+    try_acquire_job_lock,
+    write_races,
+)
 from settings import get_settings
 
 
@@ -43,6 +55,28 @@ class RacingStorageTests(unittest.TestCase):
             self.assertFalse(release_job_lock(database_url, "ingestion-worker", "owner-b"))
             self.assertTrue(release_job_lock(database_url, "ingestion-worker", "owner-a"))
             self.assertTrue(try_acquire_job_lock(database_url, "ingestion-worker", "owner-b", 60))
+
+    def test_model_registry_records_and_approves_evaluation_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_url = _sqlite_url(Path(temp_dir) / "models.db")
+            features = build_feature_table(pd.read_csv(ROOT / "sample_historical_data.csv"))
+            model = train_model(features)
+            evaluation = evaluate_model(features)
+
+            snapshot = record_model_evaluation_snapshot(database_url, model, evaluation, name="candidate-smoke")
+
+            self.assertEqual("candidate-smoke", snapshot["name"])
+            self.assertEqual("candidate", snapshot["status"])
+            self.assertIn("runner_brier_score", snapshot["metrics"])
+
+            registry = read_model_registry(database_url)
+            self.assertEqual(1, registry["page"]["total"])
+            self.assertEqual(snapshot["id"], registry["models"][0]["id"])
+
+            approved = approve_model_version(database_url, snapshot["id"])
+
+            self.assertIsNotNone(approved)
+            self.assertEqual("approved", approved["status"])
 
     def test_alembic_upgrade_and_downgrade_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

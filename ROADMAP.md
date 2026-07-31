@@ -426,3 +426,31 @@ Current inspection: `/api/v1/safeguards` and the frontend Responsible Use page n
 - Rollback plan.
 
 Current inspection: `docs/PRODUCTION_READINESS.md`, `.env.production.example`, and `scripts/production-readiness-check.py` now define the launch acceptance, migration, initial import, model approval, monitoring, and rollback gates. Real production migration, historical import, and monitored release remain future platform execution.
+
+## Phase 10: Model Operations
+
+### 10.1 Model Registry
+
+- Persist model version metadata.
+- Persist evaluation metrics for each candidate.
+- Expose a registry API endpoint.
+- Show model registry status in the frontend.
+
+Current inspection: model evaluation snapshots can now be recorded into `model_versions` and `model_evaluation_results`, `/api/v1/model/registry` lists candidate/approved/superseded rows, and the React Evaluation view displays the latest registry entries.
+
+### 10.2 Model Approval
+
+- Require explicit model approval before production launch.
+- Keep previous approved models auditable.
+- Add an acceptance check for approved models.
+
+Current inspection: `POST /api/v1/admin/model/{model_version_id}/approve` marks one model approved and supersedes any previous approved row. `scripts/production-readiness-check.py --require-approved-model` can enforce this gate for staging or production.
+
+### 10.3 Future Model Lifecycle
+
+- Persist serialized model artifacts.
+- Record prediction runs.
+- Compare candidates against the current approved model before promotion.
+- Add scheduled retraining with guarded promotion.
+
+Current inspection: Phase 10 records model metadata and metrics, but trained artifacts, prediction-run persistence, candidate-vs-approved comparison, and scheduled retraining remain future work.

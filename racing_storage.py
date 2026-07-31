@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import json
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict
+from typing import Any, Dict
 
 import pandas as pd
 from sqlalchemy import (
@@ -36,6 +37,22 @@ def _as_utc_datetime(value) -> datetime | None:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def _as_date(value) -> date | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return datetime.fromisoformat(str(value)).date()
+
+
+def _iso_value(value) -> str | None:
+    if value is None:
+        return None
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)
 
 
 def get_engine(database_url: str | Path | None = None) -> Engine:
@@ -172,6 +189,165 @@ def record_ingestion_run(
     try:
         with engine.begin() as conn:
             insert_ingestion_run(conn, provider, target_table, status, row_count, message, utc_now())
+    finally:
+        engine.dispose()
+
+
+def _model_metric_sample_size(metric_name: str, evaluation_result: Any) -> int | None:
+    if metric_name == "fixed_stake_bets":
+        return evaluation_result.validation_races
+    if metric_name.startswith("fixed_stake"):
+        bets = evaluation_result.metrics.get("fixed_stake_bets")
+        return int(bets) if bets is not None else None
+    if "top_pick" in metric_name or "winner_rank" in metric_name:
+        return evaluation_result.validation_races
+    return evaluation_result.validation_rows
+
+
+def _model_payload(row: dict[str, Any], metrics: dict[str, float | int | None]) -> dict[str, Any]:
+    feature_set = row.get("feature_set")
+    try:
+        features = json.loads(feature_set) if feature_set else []
+    except json.JSONDecodeError:
+        features = []
+
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "algorithm": row["algorithm"],
+        "status": row["status"],
+        "featureCount": len(features),
+        "trainingStart": _iso_value(row.get("training_start")),
+        "trainingEnd": _iso_value(row.get("training_end")),
+        "artifactUri": row.get("artifact_uri"),
+        "createdAt": _iso_value(row.get("created_at")),
+        "updatedAt": _iso_value(row.get("updated_at")),
+        "metrics": metrics,
+    }
+
+
+def _metrics_for_model_ids(conn, model_ids: list[int]) -> dict[int, dict[str, float | int | None]]:
+    if not model_ids:
+        return {}
+
+    eval_table = METADATA.tables["model_evaluation_results"]
+    rows = conn.execute(
+        select(eval_table.c.model_version_id, eval_table.c.metric_name, eval_table.c.metric_value).where(
+            eval_table.c.model_version_id.in_(model_ids)
+        )
+    ).all()
+    metrics: dict[int, dict[str, float | int | None]] = {model_id: {} for model_id in model_ids}
+    for model_id, metric_name, metric_value in rows:
+        metrics[int(model_id)][metric_name] = metric_value
+    return metrics
+
+
+def record_model_evaluation_snapshot(
+    database_url: str | Path | None,
+    model_result: Any,
+    evaluation_result: Any,
+    status: str = "candidate",
+    name: str | None = None,
+    artifact_uri: str | None = None,
+) -> dict[str, Any]:
+    init_db(database_url)
+    engine = get_engine(database_url)
+    model_table = METADATA.tables["model_versions"]
+    eval_table = METADATA.tables["model_evaluation_results"]
+    now = utc_now()
+    feature_columns = list(getattr(model_result, "feature_columns", []))
+    model_name = name or f"logistic-regression-{now.strftime('%Y%m%d%H%M%S')}"
+
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(
+                insert(model_table),
+                {
+                    "name": model_name,
+                    "algorithm": "LogisticRegression",
+                    "feature_set": json.dumps(feature_columns, separators=(",", ":")),
+                    "training_start": _as_date(getattr(model_result, "training_start", None)),
+                    "training_end": _as_date(getattr(model_result, "training_end", None)),
+                    "artifact_uri": artifact_uri,
+                    "status": status,
+                    "created_at": now,
+                    "updated_at": now,
+                },
+            )
+            model_version_id = int(result.inserted_primary_key[0])
+
+            metric_records = []
+            for metric_name, metric_value in evaluation_result.metrics.items():
+                if metric_value is None:
+                    continue
+                metric_records.append(
+                    {
+                        "model_version_id": model_version_id,
+                        "metric_name": metric_name,
+                        "metric_value": float(metric_value),
+                        "sample_size": _model_metric_sample_size(metric_name, evaluation_result),
+                        "evaluation_start": _as_date(evaluation_result.evaluation_start),
+                        "evaluation_end": _as_date(evaluation_result.evaluation_end),
+                        "created_at": now,
+                    }
+                )
+            if metric_records:
+                conn.execute(insert(eval_table), metric_records)
+
+            row = conn.execute(select(model_table).where(model_table.c.id == model_version_id)).mappings().one()
+            metrics = _metrics_for_model_ids(conn, [model_version_id]).get(model_version_id, {})
+            return _model_payload(dict(row), metrics)
+    finally:
+        engine.dispose()
+
+
+def read_model_registry(database_url: str | Path | None, limit: int = 20, offset: int = 0) -> dict[str, Any]:
+    init_db(database_url)
+    engine = get_engine(database_url)
+    model_table = METADATA.tables["model_versions"]
+    try:
+        with engine.connect() as conn:
+            total = int(conn.execute(select(func.count()).select_from(model_table)).scalar_one())
+            rows = (
+                conn.execute(
+                    select(model_table)
+                    .order_by(model_table.c.id.desc())
+                    .limit(limit)
+                    .offset(offset)
+                )
+                .mappings()
+                .all()
+            )
+            model_ids = [int(row["id"]) for row in rows]
+            metrics = _metrics_for_model_ids(conn, model_ids)
+            models = [_model_payload(dict(row), metrics.get(int(row["id"]), {})) for row in rows]
+            return {
+                "models": models,
+                "page": {"limit": limit, "offset": offset, "returned": len(models), "total": total},
+            }
+    finally:
+        engine.dispose()
+
+
+def approve_model_version(database_url: str | Path | None, model_version_id: int) -> dict[str, Any] | None:
+    init_db(database_url)
+    engine = get_engine(database_url)
+    model_table = METADATA.tables["model_versions"]
+    now = utc_now()
+    try:
+        with engine.begin() as conn:
+            row = conn.execute(select(model_table).where(model_table.c.id == model_version_id)).mappings().first()
+            if not row:
+                return None
+            conn.execute(
+                update(model_table)
+                .where(model_table.c.status == "approved", model_table.c.id != model_version_id)
+                .values(status="superseded", updated_at=now)
+            )
+            conn.execute(update(model_table).where(model_table.c.id == model_version_id).values(status="approved", updated_at=now))
+            updated = conn.execute(select(model_table).where(model_table.c.id == model_version_id)).mappings().one()
+            metrics = _metrics_for_model_ids(conn, [model_version_id]).get(model_version_id, {})
+            return _model_payload(dict(updated), metrics)
     finally:
         engine.dispose()
 

@@ -79,6 +79,7 @@ Monitor:
 - `/api/v1/ready`
 - `/api/v1/ingestion-status`
 - `/api/v1/safeguards`
+- `/api/v1/model/registry`
 - `/api/v1/model/evaluation`
 - frontend freshness indicator from `/api/v1/summary`
 
@@ -92,6 +93,7 @@ The summary endpoint returns `dataFreshness.status`, `ageHours`, and `maxAgeHour
 - `alembic upgrade head` reaches the latest revision.
 - `/api/v1/ready` returns `ok`.
 - `/api/v1/safeguards` returns responsible-use, licensing, privacy, and terms notices.
+- A candidate model snapshot can be recorded through `POST /api/v1/admin/model/evaluation`.
 - `python scripts/production-readiness-check.py --base-url <api-url>` passes.
 - Ingestion worker records a successful run.
 - Frontend can load meetings, race cards, predictions, model evaluation, and trends.

@@ -87,9 +87,13 @@ Initial historical import:
 Model approval:
 
 - Review `/api/v1/model/evaluation`.
+- Record a candidate snapshot with `POST /api/v1/admin/model/evaluation`.
 - Require a non-empty chronological holdout.
 - Compare model metrics against the market baseline before launch.
+- Approve the reviewed model with `POST /api/v1/admin/model/{model_version_id}/approve`.
 - Record the approved commit SHA and data snapshot window.
+
+When production is expected to have an approved model, add `--require-approved-model` to `scripts/production-readiness-check.py`.
 
 Monitored release:
 

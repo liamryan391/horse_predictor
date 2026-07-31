@@ -23,12 +23,15 @@ Core endpoints:
 - `GET /api/v1/entities/{entity_type}/{name}`
 - `GET /api/v1/model`
 - `GET /api/v1/model/evaluation`
+- `GET /api/v1/model/registry`
 - `GET /api/v1/trends`
 - `GET /api/v1/ingestion-status`
 
 Administrative endpoint:
 
 - `POST /api/v1/admin/seed-sample`
+- `POST /api/v1/admin/model/evaluation`
+- `POST /api/v1/admin/model/{model_version_id}/approve`
 
 The same endpoints are also mounted under `/api/...` for current frontend compatibility.
 
@@ -111,3 +114,7 @@ Use a gateway or hosting-platform limiter for production traffic; the built-in l
 - `DATA_LICENSE_REFERENCE`
 
 The React Responsible Use page reads this endpoint and falls back to the built-in launch-safe wording if the API is unavailable.
+
+## Model Registry
+
+`GET /api/v1/model/registry` returns persisted model evaluation snapshots. Use `POST /api/v1/admin/model/evaluation` to record the current candidate metrics, then `POST /api/v1/admin/model/{model_version_id}/approve` to approve a reviewed version. See [MODEL_OPERATIONS.md](MODEL_OPERATIONS.md) for the release workflow.

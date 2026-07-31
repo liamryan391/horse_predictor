@@ -27,6 +27,8 @@ from api_contracts import (
     IngestionStatusResponse,
     MeetingsResponse,
     ModelEvaluationResponse,
+    ModelRegistryResponse,
+    ModelSnapshotResponse,
     ModelStatusResponse,
     PageMeta,
     PredictionsResponse,
@@ -41,8 +43,11 @@ from api_contracts import (
 from prediction_model import build_feature_table, evaluate_model, score_current_races, summarize_entities, train_model
 from racing_storage import (
     TABLES,
+    approve_model_version,
     ingestion_status,
     read_races,
+    read_model_registry,
+    record_model_evaluation_snapshot,
     seed_database_from_samples,
     table_counts,
 )
@@ -64,7 +69,7 @@ REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 
 app = FastAPI(
     title="Horse Predictor API",
-    version="0.3.0",
+    version="0.4.0",
     description="Versioned API for race cards, model predictions, ingestion status, and model evaluation.",
     responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 413: {"model": ErrorResponse}, 422: {"model": ErrorResponse}, 429: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
@@ -530,6 +535,31 @@ def model_status() -> dict[str, Any]:
 def model_evaluation() -> dict[str, Any]:
     _, _, _, history_features = load_model_bundle()
     return {"requestId": request_id(), "evaluation": evaluate_model(history_features).to_dict()}
+
+
+@router.get("/model/registry", response_model=ModelRegistryResponse)
+def model_registry(
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict[str, Any]:
+    registry = read_model_registry(DATABASE_URL, limit=limit, offset=offset)
+    return {"requestId": request_id(), **registry}
+
+
+@router.post("/admin/model/evaluation", response_model=ModelSnapshotResponse)
+def capture_model_evaluation(_: None = Depends(require_admin)) -> dict[str, Any]:
+    _, _, model, history_features = load_model_bundle()
+    evaluation = evaluate_model(history_features)
+    model_record = record_model_evaluation_snapshot(DATABASE_URL, model, evaluation)
+    return {"requestId": request_id(), "model": model_record}
+
+
+@router.post("/admin/model/{model_version_id}/approve", response_model=ModelSnapshotResponse)
+def approve_model(model_version_id: int, _: None = Depends(require_admin)) -> dict[str, Any]:
+    model_record = approve_model_version(DATABASE_URL, model_version_id)
+    if not model_record:
+        raise HTTPException(status_code=404, detail=f"Model version {model_version_id} was not found.")
+    return {"requestId": request_id(), "model": model_record}
 
 
 @router.get("/trends", response_model=TrendsResponse)
