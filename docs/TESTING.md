@@ -53,3 +53,5 @@ agent-browser wait --load networkidle
 agent-browser snapshot -i
 agent-browser close
 ```
+
+Future check note: `agent-browser` is a required visual smoke gate before staging acceptance, but it is not currently required for backend/frontend automated tests.

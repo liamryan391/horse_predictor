@@ -369,6 +369,8 @@ Current inspection: `data_quality.py` now provides reusable required-column, inv
 - Run migrations.
 - Add HTTPS and domain configuration.
 
+Current inspection: staging now has a managed-database env template, staging compose manifest, backend release scripts, a production-style static frontend container, and cloud staging runbook. Actual hosted MySQL, HTTPS, and domain provisioning remain external platform work.
+
 ### 8.2 Scheduled Jobs
 
 - Deploy ingestion worker.
@@ -376,6 +378,8 @@ Current inspection: `data_quality.py` now provides reusable required-column, inv
 - Add retry queues.
 - Add alerts.
 - Add data-freshness indicators in the UI.
+
+Current inspection: the ingestion worker now supports a database-backed `job_locks` table to skip overlapping runs, and the workspace shows API-provided data freshness from `/api/v1/summary`.
 
 ### 8.3 Observability
 
@@ -385,6 +389,8 @@ Current inspection: `data_quality.py` now provides reusable required-column, inv
 - Database metrics.
 - Ingestion failure dashboards.
 - Model-quality monitoring.
+
+Current inspection: staging can emit JSON application logs, and the staging runbook identifies health, readiness, ingestion, freshness, and model-evaluation checks. Full dashboards and external alert routing remain future platform configuration.
 
 ## Phase 9: Production Readiness
 

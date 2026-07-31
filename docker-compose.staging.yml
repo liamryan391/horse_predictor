@@ -1,0 +1,74 @@
+name: horse_predictor_staging
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command: >
+      sh -c "python -m alembic upgrade head
+      && uvicorn api:app --host 0.0.0.0 --port 8000"
+    environment:
+      APP_ENV: staging
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:?Set BACKEND_CORS_ORIGINS}
+      API_AUTH_TOKEN: ${API_AUTH_TOKEN:?Set API_AUTH_TOKEN}
+      API_RATE_LIMIT_PER_MINUTE: ${API_RATE_LIMIT_PER_MINUTE:-240}
+      DATA_FRESHNESS_MAX_AGE_HOURS: ${DATA_FRESHNESS_MAX_AGE_HOURS:-24}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      HORSE_API_PROVIDER: ${HORSE_API_PROVIDER:-sample}
+      HORSE_API_BASE_URL: ${HORSE_API_BASE_URL:-}
+      HORSE_API_KEY: ${HORSE_API_KEY:-}
+      RACING_API_USERNAME: ${RACING_API_USERNAME:-}
+      RACING_API_PASSWORD: ${RACING_API_PASSWORD:-}
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=5)"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  ingestion-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command: >
+      sh -c "python -m alembic upgrade head
+      && python data_pipeline.py --repeat-hourly --no-csv --lock-name ingestion-worker"
+    environment:
+      APP_ENV: staging
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:?Set BACKEND_CORS_ORIGINS}
+      API_AUTH_TOKEN: ${API_AUTH_TOKEN:?Set API_AUTH_TOKEN}
+      DATA_FRESHNESS_MAX_AGE_HOURS: ${DATA_FRESHNESS_MAX_AGE_HOURS:-24}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      HORSE_API_PROVIDER: ${HORSE_API_PROVIDER:-sample}
+      HORSE_API_BASE_URL: ${HORSE_API_BASE_URL:-}
+      HORSE_API_KEY: ${HORSE_API_KEY:-}
+      HORSE_API_TIMEOUT_SECONDS: ${HORSE_API_TIMEOUT_SECONDS:-30}
+      HORSE_API_RETRY_ATTEMPTS: ${HORSE_API_RETRY_ATTEMPTS:-3}
+      HORSE_API_RETRY_BACKOFF_SECONDS: ${HORSE_API_RETRY_BACKOFF_SECONDS:-1.5}
+      HORSE_API_MIN_REQUEST_INTERVAL_SECONDS: ${HORSE_API_MIN_REQUEST_INTERVAL_SECONDS:-0}
+      HORSE_API_MAX_PAGES: ${HORSE_API_MAX_PAGES:-5}
+      RACING_API_USERNAME: ${RACING_API_USERNAME:-}
+      RACING_API_PASSWORD: ${RACING_API_PASSWORD:-}
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.staging
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:?Set VITE_API_BASE_URL}
+    ports:
+      - "8080:8080"
+    depends_on:
+      backend:
+        condition: service_healthy

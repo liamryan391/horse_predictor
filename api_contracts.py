@@ -50,12 +50,20 @@ class ReadinessResponse(BaseModel):
     message: str | None = None
 
 
+class DataFreshness(BaseModel):
+    status: str
+    lastRefresh: str | None = None
+    ageHours: float | None = None
+    maxAgeHours: float
+
+
 class SummaryResponse(BaseModel):
     requestId: str
     database: DatabaseSummary
     historicalRuns: int
     currentRunners: int
     lastRefresh: str | None
+    dataFreshness: DataFreshness
 
 
 class RaceRunner(BaseModel):

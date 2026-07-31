@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import os
+import platform
 import time
 from datetime import date, timedelta
 
+from observability import configure_logging
 from provider_adapters import APIConfig, FetchContext, get_provider_adapter, summarize_validation_issues
-from racing_storage import TABLES, record_ingestion_run, seed_database_from_samples, write_races
+from racing_storage import TABLES, record_ingestion_run, release_job_lock, seed_database_from_samples, try_acquire_job_lock, write_races
 from settings import get_settings
 
 
@@ -41,6 +44,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-pages", type=int, default=settings.horse_api_max_pages)
     parser.add_argument("--no-csv", action="store_true", help="Only update SQL; do not write CSV snapshots.")
     parser.add_argument("--repeat-hourly", action="store_true", help="Keep the ingestion worker running hourly.")
+    parser.add_argument("--disable-lock", action="store_true", help="Run without acquiring the ingestion worker lock.")
+    parser.add_argument("--lock-name", default="ingestion-worker")
+    parser.add_argument("--lock-ttl-seconds", type=int, default=55 * 60)
     return parser.parse_args(argv)
 
 
@@ -110,15 +116,41 @@ def run_once(args: argparse.Namespace) -> dict:
     }
 
 
+def run_once_with_lock(args: argparse.Namespace) -> dict:
+    if args.disable_lock:
+        return run_once(args)
+
+    owner = f"{platform.node() or 'host'}:{os.getpid()}"
+    acquired = try_acquire_job_lock(
+        args.database_url,
+        args.lock_name,
+        owner,
+        args.lock_ttl_seconds,
+        message=f"provider={args.provider}",
+    )
+    if not acquired:
+        return {"historical": 0, "current": 0, "source": args.provider, "validation_issues": 0, "skipped": True}
+
+    try:
+        return run_once(args)
+    finally:
+        release_job_lock(args.database_url, args.lock_name, owner)
+
+
 def main() -> None:
     args = parse_args()
+    settings = get_settings()
+    configure_logging(settings.app_env, settings.log_format)
     while True:
-        result = run_once(args)
-        print(
-            f"Updated {args.database_url}: {result['historical']} historical rows, "
-            f"{result['current']} current rows from {result['source']} "
-            f"({result.get('validation_issues', 0)} validation issues)."
-        )
+        result = run_once_with_lock(args)
+        if result.get("skipped"):
+            print(f"Skipped {args.provider} ingestion because lock {args.lock_name} is already active.")
+        else:
+            print(
+                f"Updated {args.database_url}: {result['historical']} historical rows, "
+                f"{result['current']} current rows from {result['source']} "
+                f"({result.get('validation_issues', 0)} validation issues)."
+            )
         if not args.repeat_hourly:
             break
         time.sleep(60 * 60)

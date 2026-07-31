@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+from pathlib import Path
+import os
+import tempfile
 import unittest
 
-from api import entity_profile, health, meetings, predictions, race_card, ready
-from api_contracts import HealthResponse, PredictionsResponse, RaceCardResponse, ReadinessResponse
+_TEMP_DIR = tempfile.TemporaryDirectory()
+os.environ["DATABASE_URL"] = f"sqlite:///{(Path(_TEMP_DIR.name) / 'api_contracts.db').as_posix()}"
+
+from api import entity_profile, health, meetings, predictions, race_card, ready, summary
+from api_contracts import HealthResponse, PredictionsResponse, RaceCardResponse, ReadinessResponse, SummaryResponse
 
 
 class APIContractTests(unittest.TestCase):
@@ -22,6 +28,12 @@ class APIContractTests(unittest.TestCase):
         self.assertEqual(2, response.page.returned)
         self.assertEqual(3, response.page.total)
         self.assertTrue(all(row.track == "York" for row in response.predictions))
+
+    def test_summary_includes_data_freshness_signal(self) -> None:
+        response = SummaryResponse(**summary())
+
+        self.assertIn(response.dataFreshness.status, {"fresh", "stale", "missing", "unknown"})
+        self.assertEqual(response.lastRefresh, response.dataFreshness.lastRefresh)
 
     def test_race_card_supports_runner_search(self) -> None:
         response = RaceCardResponse(**race_card(horse="Golden"))

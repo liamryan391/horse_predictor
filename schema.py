@@ -265,6 +265,17 @@ def add_normalized_tables(metadata: MetaData) -> None:
     )
 
     Table(
+        "job_locks",
+        metadata,
+        Column("lock_name", String(120), primary_key=True),
+        Column("owner", String(160), nullable=False),
+        Column("acquired_at", DateTime(timezone=True), nullable=False),
+        Column("expires_at", DateTime(timezone=True), nullable=False),
+        Column("message", Text),
+        Index("ix_job_locks_expires_at", "expires_at"),
+    )
+
+    Table(
         "model_versions",
         metadata,
         Column("id", Integer, primary_key=True, autoincrement=True),

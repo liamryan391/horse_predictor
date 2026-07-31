@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict
 
@@ -16,6 +16,7 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError
 
 from schema import METADATA, NUMERIC_COLUMNS, RACE_COLUMNS, RACE_IDENTITY_COLUMNS, TABLES, VALID_TABLES
 from settings import resolve_database_url
@@ -23,6 +24,18 @@ from settings import resolve_database_url
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(microsecond=0)
+
+
+def _as_utc_datetime(value) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    else:
+        parsed = value
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def get_engine(database_url: str | Path | None = None) -> Engine:
@@ -159,6 +172,60 @@ def record_ingestion_run(
     try:
         with engine.begin() as conn:
             insert_ingestion_run(conn, provider, target_table, status, row_count, message, utc_now())
+    finally:
+        engine.dispose()
+
+
+def try_acquire_job_lock(
+    database_url: str | Path | None,
+    lock_name: str,
+    owner: str,
+    ttl_seconds: int,
+    message: str | None = None,
+) -> bool:
+    init_db(database_url)
+    engine = get_engine(database_url)
+    lock_table = METADATA.tables["job_locks"]
+    now = utc_now()
+    expires_at = now + timedelta(seconds=ttl_seconds)
+    try:
+        with engine.begin() as conn:
+            row = conn.execute(select(lock_table).where(lock_table.c.lock_name == lock_name)).mappings().first()
+            if row:
+                current_expiry = _as_utc_datetime(row["expires_at"])
+                if current_expiry and current_expiry > now:
+                    return False
+                result = conn.execute(
+                    update(lock_table)
+                    .where(lock_table.c.lock_name == lock_name, lock_table.c.expires_at == row["expires_at"])
+                    .values(owner=owner, acquired_at=now, expires_at=expires_at, message=message)
+                )
+                return bool(result.rowcount)
+            conn.execute(
+                insert(lock_table),
+                {
+                    "lock_name": lock_name,
+                    "owner": owner,
+                    "acquired_at": now,
+                    "expires_at": expires_at,
+                    "message": message,
+                },
+            )
+            return True
+    except IntegrityError:
+        return False
+    finally:
+        engine.dispose()
+
+
+def release_job_lock(database_url: str | Path | None, lock_name: str, owner: str) -> bool:
+    init_db(database_url)
+    engine = get_engine(database_url)
+    lock_table = METADATA.tables["job_locks"]
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(delete(lock_table).where(lock_table.c.lock_name == lock_name, lock_table.c.owner == owner))
+            return bool(result.rowcount)
     finally:
         engine.dispose()
 

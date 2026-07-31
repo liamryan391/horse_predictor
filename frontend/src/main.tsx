@@ -51,6 +51,14 @@ type Summary = {
   historicalRuns: number;
   currentRunners: number;
   lastRefresh: string | null;
+  dataFreshness: DataFreshness;
+};
+
+type DataFreshness = {
+  status: string;
+  lastRefresh: string | null;
+  ageHours: number | null;
+  maxAgeHours: number;
 };
 
 type RaceRunner = {
@@ -193,6 +201,13 @@ function formatDate(value: string | null | undefined) {
   if (!value) return "-";
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString();
+}
+
+function formatFreshness(value: DataFreshness | null | undefined) {
+  if (!value) return "-";
+  if (value.status === "fresh" && value.ageHours !== null) return `Fresh (${formatNumber(value.ageHours, 1)}h)`;
+  if (value.status === "stale" && value.ageHours !== null) return `Stale (${formatNumber(value.ageHours, 1)}h)`;
+  return value.status;
 }
 
 function localStorageValue(key: string, fallback: string) {
@@ -399,6 +414,7 @@ function Workspace() {
         <Metric label="Meetings" value={formatInteger(filteredMeetings.length)} />
         <Metric label="Top-pick holdout" value={formatPercent(model?.evaluation.metrics.top_pick_win_rate)} />
         <Metric label="Data quality" value={dataQuality} />
+        <Metric label="Freshness" value={formatFreshness(summary?.dataFreshness)} />
         <Metric label="Last refresh" value={formatDate(summary?.lastRefresh)} />
       </div>
 

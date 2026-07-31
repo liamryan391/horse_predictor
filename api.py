@@ -6,7 +6,7 @@ import math
 import time
 import uuid
 from collections import defaultdict, deque
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Annotated, Any, Literal
 
 import pandas as pd
@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from observability import configure_logging
 from api_contracts import (
     EntityProfileResponse,
     ErrorResponse,
@@ -45,6 +46,7 @@ from settings import get_settings
 
 SETTINGS = get_settings()
 SETTINGS.validate_runtime()
+configure_logging(SETTINGS.app_env, SETTINGS.log_format)
 DATABASE_URL = SETTINGS.database_url
 
 SortDirection = Literal["asc", "desc"]
@@ -170,6 +172,25 @@ def clean_value(value: Any) -> Any:
     if isinstance(value, float) and (math.isinf(value) or math.isnan(value)):
         return None
     return value
+
+
+def data_freshness(last_refresh: Any) -> dict[str, Any]:
+    max_age_hours = SETTINGS.data_freshness_max_age_hours
+    if not last_refresh:
+        return {"status": "missing", "lastRefresh": None, "ageHours": None, "maxAgeHours": max_age_hours}
+
+    parsed = pd.to_datetime(last_refresh, utc=True, errors="coerce")
+    if pd.isna(parsed):
+        return {"status": "unknown", "lastRefresh": clean_value(last_refresh), "ageHours": None, "maxAgeHours": max_age_hours}
+
+    age_hours = round((datetime.now(timezone.utc) - parsed.to_pydatetime()).total_seconds() / 3600, 2)
+    status = "fresh" if age_hours <= max_age_hours else "stale"
+    return {
+        "status": status,
+        "lastRefresh": clean_value(last_refresh),
+        "ageHours": age_hours,
+        "maxAgeHours": max_age_hours,
+    }
 
 
 def records(df: pd.DataFrame) -> list[dict[str, Any]]:
@@ -330,6 +351,7 @@ def summary() -> dict[str, Any]:
         "historicalRuns": counts["historical"],
         "currentRunners": counts["current"],
         "lastRefresh": last_refresh,
+        "dataFreshness": data_freshness(last_refresh),
     }
 
 

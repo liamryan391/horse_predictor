@@ -40,6 +40,8 @@ class Settings:
     sample_current_csv: Path
     api_auth_token: str = ""
     api_rate_limit_per_minute: int = 240
+    data_freshness_max_age_hours: float = 24.0
+    log_format: str = "plain"
 
     @property
     def is_deployed_environment(self) -> bool:
@@ -103,4 +105,6 @@ def get_settings() -> Settings:
         sample_current_csv=Path(os.getenv("SAMPLE_CURRENT_CSV", BASE_DIR / "sample_current_races.csv")),
         api_auth_token=os.getenv("API_AUTH_TOKEN", ""),
         api_rate_limit_per_minute=int(os.getenv("API_RATE_LIMIT_PER_MINUTE", "240")),
+        data_freshness_max_age_hours=float(os.getenv("DATA_FRESHNESS_MAX_AGE_HOURS", "24")),
+        log_format=os.getenv("LOG_FORMAT", "json" if os.getenv("APP_ENV", "development").lower() in {"staging", "production"} else "plain"),
     )

@@ -10,7 +10,7 @@ from alembic.config import Config
 import pandas as pd
 from sqlalchemy import create_engine, inspect
 
-from racing_storage import TABLES, ingestion_status, read_races, table_counts, write_races
+from racing_storage import TABLES, ingestion_status, read_races, release_job_lock, table_counts, try_acquire_job_lock, write_races
 from settings import get_settings
 
 
@@ -33,6 +33,16 @@ class RacingStorageTests(unittest.TestCase):
             self.assertEqual(9.9, stored.loc[0, "odds"])
             self.assertEqual(1, table_counts(database_url)["current"])
             self.assertEqual("success", ingestion_status(database_url).loc[0, "status"])
+
+    def test_job_lock_prevents_duplicate_ingestion_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_url = _sqlite_url(Path(temp_dir) / "locks.db")
+
+            self.assertTrue(try_acquire_job_lock(database_url, "ingestion-worker", "owner-a", 60))
+            self.assertFalse(try_acquire_job_lock(database_url, "ingestion-worker", "owner-b", 60))
+            self.assertFalse(release_job_lock(database_url, "ingestion-worker", "owner-b"))
+            self.assertTrue(release_job_lock(database_url, "ingestion-worker", "owner-a"))
+            self.assertTrue(try_acquire_job_lock(database_url, "ingestion-worker", "owner-b", 60))
 
     def test_alembic_upgrade_and_downgrade_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
