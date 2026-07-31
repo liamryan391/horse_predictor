@@ -14,8 +14,15 @@ import "./styles.css";
 
 type Page = "home" | "about" | "race-lab";
 
+type DatabaseSummary = {
+  environment: string;
+  engine: string;
+  driver: string;
+  database: string | null;
+};
+
 type Summary = {
-  database: string;
+  database: DatabaseSummary;
   historicalRuns: number;
   currentRunners: number;
   lastRefresh: string | null;
@@ -65,6 +72,8 @@ const navigation: { page: Page; label: string; icon: typeof Home }[] = [
   { page: "race-lab", label: "Race Lab", icon: BarChart3 }
 ];
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+
 function formatPercent(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(value)) return "-";
   return `${(value * 100).toFixed(1)}%`;
@@ -76,7 +85,7 @@ function formatNumber(value: number | null | undefined, digits = 2) {
 }
 
 async function apiGet<T>(path: string): Promise<T> {
-  const response = await fetch(path);
+  const response = await fetch(`${API_BASE_URL}${path}`);
   if (!response.ok) {
     const detail = await response.text();
     throw new Error(detail || `Request failed: ${response.status}`);

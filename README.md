@@ -134,3 +134,4 @@ Optional model features:
 This is decision-support software, not guaranteed betting advice. Model quality depends on the amount, accuracy, and freshness of historical results. For production, add schema validation, automated backtesting, authentication, and a managed MySQL database.
 
 See [ROADMAP.md](ROADMAP.md) for the planned path from prototype to production-ready platform.
+See [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) for imported project context and [docs/WORKFLOW.md](docs/WORKFLOW.md) for the branch and PR workflow.

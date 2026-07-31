@@ -8,12 +8,14 @@ from typing import Any
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.engine.url import make_url
 
 from prediction_model import build_feature_table, score_current_races, summarize_entities, train_model
 from racing_storage import (
     TABLES,
     ingestion_status,
     read_races,
+    resolve_database_url,
     seed_database_from_samples,
     table_counts,
 )
@@ -57,6 +59,19 @@ def records(df: pd.DataFrame) -> list[dict[str, Any]]:
     return [{key: clean_value(value) for key, value in row.items()} for row in df.to_dict(orient="records")]
 
 
+def database_summary() -> dict[str, Any]:
+    parsed = make_url(resolve_database_url(DATABASE_URL))
+    database_name = parsed.database
+    if parsed.get_backend_name() == "sqlite" and database_name:
+        database_name = Path(database_name).name
+    return {
+        "environment": os.getenv("APP_ENV", "development"),
+        "engine": parsed.get_backend_name(),
+        "driver": parsed.drivername,
+        "database": database_name,
+    }
+
+
 def load_model_bundle() -> tuple[pd.DataFrame, pd.DataFrame, Any, pd.DataFrame]:
     ensure_seed_data()
     history_df = read_races(DATABASE_URL, TABLES["historical"])
@@ -72,7 +87,7 @@ def load_model_bundle() -> tuple[pd.DataFrame, pd.DataFrame, Any, pd.DataFrame]:
 @app.get("/api/health")
 def health() -> dict[str, Any]:
     counts = table_counts(DATABASE_URL)
-    return {"status": "ok", "database": DATABASE_URL, "counts": counts}
+    return {"status": "ok", "database": database_summary(), "counts": counts}
 
 
 @app.get("/api/summary")
@@ -82,7 +97,7 @@ def summary() -> dict[str, Any]:
     status_df = ingestion_status(DATABASE_URL)
     last_refresh = None if status_df.empty else clean_value(status_df.iloc[0]["ingested_at"])
     return {
-        "database": DATABASE_URL,
+        "database": database_summary(),
         "historicalRuns": counts["historical"],
         "currentRunners": counts["current"],
         "lastRefresh": last_refresh,
