@@ -284,6 +284,8 @@ Current inspection: backend routes are now mounted under `/api/v1` with `/api` c
 - Responsible Use.
 - Contact/support.
 
+Current inspection: the React app now opens to the operational workspace and includes Methodology, Responsible Use, and Contact pages.
+
 ### 6.2 Racing Intelligence Workspace
 
 - Today's meetings.
@@ -294,6 +296,8 @@ Current inspection: backend routes are now mounted under `/api/v1` with `/api` c
 - Confidence and data-quality indicators.
 - Horse, jockey, trainer, and owner details.
 
+Current inspection: the workspace now uses `/api/v1` for meetings, race-card rows, prediction rankings, runner comparison, trend tables, model evaluation, saved track filters, and data-quality indicators.
+
 ### 6.3 Bet Journal
 
 - Record a bet.
@@ -302,6 +306,8 @@ Current inspection: backend routes are now mounted under `/api/v1` with `/api` c
 - Show profit/loss and return on investment.
 - Filter by track, bet type, horse, and date.
 - Avoid language that guarantees profit.
+
+Current inspection: the frontend now includes a browser-local bet journal for open/settled positions, stake, profit, and ROI. Server-side bet history remains future work.
 
 ### 6.4 Dynamic Experience
 
@@ -313,6 +319,8 @@ Current inspection: backend routes are now mounted under `/api/v1` with `/api` c
 - Dark mode.
 - Saved filters.
 - Charts for form, odds movements, and model calibration.
+
+Current inspection: the frontend now has responsive workspace navigation, loading skeletons, retryable error states, saved filters, dark mode, and a model calibration bar. Full accessibility automation and richer charts remain Phase 7+ work.
 
 ## Phase 7: Automated Testing
 

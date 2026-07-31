@@ -1,18 +1,28 @@
-import { StrictMode, useEffect, useMemo, useState } from "react";
+import { StrictMode, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Activity,
   BarChart3,
   BookOpen,
+  CalendarDays,
+  ClipboardList,
   Database,
-  Home,
+  Moon,
   RefreshCw,
+  Scale,
   ShieldCheck,
-  Trophy
+  Sun,
+  Trophy,
+  Trash2,
+  UserRound,
+  WalletCards,
+  type LucideIcon
 } from "lucide-react";
 import "./styles.css";
 
-type Page = "home" | "about" | "race-lab";
+type Page = "workspace" | "journal" | "methodology" | "responsible-use" | "contact";
+type WorkspaceView = "rankings" | "race-card" | "evaluation" | "trends";
+type BetStatus = "open" | "won" | "lost";
 
 type DatabaseSummary = {
   environment: string;
@@ -21,28 +31,60 @@ type DatabaseSummary = {
   database: string | null;
 };
 
+type PageMeta = {
+  limit: number;
+  offset: number;
+  returned: number;
+  total: number;
+};
+
 type Summary = {
+  requestId: string;
   database: DatabaseSummary;
   historicalRuns: number;
   currentRunners: number;
   lastRefresh: string | null;
 };
 
-type Prediction = {
+type RaceRunner = {
   race_date: string | null;
   track: string | null;
+  distance: number | null;
+  surface: string | null;
   horse: string | null;
   jockey: string | null;
+  owner: string | null;
   trainer: string | null;
   odds: number | null;
+  draw: number | null;
+  speed_rating: number | null;
+  class_rating: number | null;
+  weather: string | null;
+};
+
+type Prediction = RaceRunner & {
   model_odds: number | null;
   win_probability: number | null;
   implied_probability: number | null;
   value_edge: number | null;
   suggested_rank: number | null;
+  field_size: number | null;
+  odds_rank: number | null;
+  relative_speed_rating: number | null;
+  relative_class_rating: number | null;
+};
+
+type Meeting = {
+  race_date: string | null;
+  track: string | null;
+  races: number;
+  runners: number;
+  first_distance: number | null;
+  last_distance: number | null;
 };
 
 type ModelStatus = {
+  requestId: string;
   trainingRows: number;
   winnerRate: number;
   trainingStart: string | null;
@@ -92,19 +134,42 @@ type TrendRow = {
 };
 
 type Trends = {
+  requestId: string;
   jockey: TrendRow[];
   trainer: TrendRow[];
   owner: TrendRow[];
 };
 
-const navigation: { page: Page; label: string; icon: typeof Home }[] = [
-  { page: "home", label: "Home", icon: Home },
-  { page: "about", label: "About Us", icon: BookOpen },
-  { page: "race-lab", label: "Race Lab", icon: BarChart3 }
+type Bet = {
+  id: string;
+  createdAt: string;
+  horse: string;
+  track: string;
+  stake: number;
+  odds: number;
+  status: BetStatus;
+};
+
+const navigation: { page: Page; label: string; icon: LucideIcon }[] = [
+  { page: "workspace", label: "Workspace", icon: BarChart3 },
+  { page: "journal", label: "Bet Journal", icon: WalletCards },
+  { page: "methodology", label: "Methodology", icon: BookOpen },
+  { page: "responsible-use", label: "Responsible Use", icon: ShieldCheck },
+  { page: "contact", label: "Contact", icon: UserRound }
+];
+
+const workspaceViews: { view: WorkspaceView; label: string; icon: LucideIcon }[] = [
+  { view: "rankings", label: "Rankings", icon: Trophy },
+  { view: "race-card", label: "Race Card", icon: ClipboardList },
+  { view: "evaluation", label: "Evaluation", icon: ShieldCheck },
+  { view: "trends", label: "Trends", icon: Activity }
 ];
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 const API_PREFIX = "/api/v1";
+const TRACK_FILTER_KEY = "horse-predictor-track-filter";
+const THEME_KEY = "horse-predictor-theme";
+const BETS_KEY = "horse-predictor-bets";
 
 function formatPercent(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(value)) return "-";
@@ -125,6 +190,20 @@ function formatSignedNumber(value: number | null | undefined, digits = 2) {
   if (value === null || value === undefined || Number.isNaN(value)) return "-";
   const formatted = value.toFixed(digits);
   return value > 0 ? `+${formatted}` : formatted;
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString();
+}
+
+function localStorageValue(key: string, fallback: string) {
+  try {
+    return localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 async function apiGet<T>(path: string): Promise<T> {
@@ -156,12 +235,18 @@ function Logo() {
 }
 
 function App() {
-  const [page, setPage] = useState<Page>("home");
+  const [page, setPage] = useState<Page>("workspace");
+  const [theme, setTheme] = useState(() => localStorageValue(THEME_KEY, "light"));
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem(THEME_KEY, theme);
+  }, [theme]);
 
   return (
     <div className="app-shell">
       <header className="topbar">
-        <button className="brand" onClick={() => setPage("home")} aria-label="Go to home">
+        <button className="brand" onClick={() => setPage("workspace")} aria-label="Open workspace">
           <Logo />
           <span>
             <strong>Horse Predictor</strong>
@@ -183,102 +268,37 @@ function App() {
             );
           })}
         </nav>
+        <button
+          className="icon-action square-action"
+          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          title={theme === "dark" ? "Use light theme" : "Use dark theme"}
+          aria-label={theme === "dark" ? "Use light theme" : "Use dark theme"}
+        >
+          {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+        </button>
       </header>
 
       <main>
-        {page === "home" && <HomePage onOpenTool={() => setPage("race-lab")} />}
-        {page === "about" && <AboutPage />}
-        {page === "race-lab" && <RaceLab />}
+        {page === "workspace" && <Workspace />}
+        {page === "journal" && <BetJournal />}
+        {page === "methodology" && <MethodologyPage />}
+        {page === "responsible-use" && <ResponsibleUsePage />}
+        {page === "contact" && <ContactPage />}
       </main>
     </div>
   );
 }
 
-function HomePage({ onOpenTool }: { onOpenTool: () => void }) {
-  return (
-    <section className="home-grid">
-      <div className="hero-copy">
-        <div className="eyebrow">MySQL-ready racing model</div>
-        <h1>Professional race-card scoring for sharper pre-race decisions.</h1>
-        <p>
-          Horse Predictor turns API-fed racing data into ranked runners, model odds, value edges,
-          and stable trend signals. The model retrains from the latest historical results in the
-          database, so better data can support stronger model review.
-        </p>
-        <div className="hero-actions">
-          <button className="primary-action" onClick={onOpenTool}>
-            <BarChart3 size={18} />
-            Open Race Lab
-          </button>
-          <span className="status-pill">
-            <Database size={16} />
-            API to SQL to model
-          </span>
-        </div>
-      </div>
-      <div className="signal-panel">
-        <div className="panel-header">
-          <Trophy size={22} />
-          <span>Today&apos;s decision stack</span>
-        </div>
-        <div className="signal-list">
-          <div>
-            <strong>1. Ingest</strong>
-            <span>Racecards and results update the SQL tables.</span>
-          </div>
-          <div>
-            <strong>2. Learn</strong>
-            <span>The model retrains from historical winners and losers.</span>
-          </div>
-          <div>
-            <strong>3. Rank</strong>
-            <span>Upcoming runners are scored by probability and value edge.</span>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function AboutPage() {
-  return (
-    <section className="content-band">
-      <div className="section-heading">
-        <div className="eyebrow">About Us</div>
-        <h1>Built for disciplined racing analysis.</h1>
-        <p>
-          The product is designed for users who want structured evidence before making racing
-          decisions. It is not a betting guarantee; it is an intelligence layer that rewards clean
-          data, repeatable process, and sober model review.
-        </p>
-      </div>
-      <div className="about-grid">
-        <article>
-          <ShieldCheck size={24} />
-          <h2>Data first</h2>
-          <p>API ingestion writes to SQL, giving the system a reliable history to learn from.</p>
-        </article>
-        <article>
-          <Activity size={24} />
-          <h2>Evidence review</h2>
-          <p>Verified results create a deeper holdout record for model evaluation.</p>
-        </article>
-        <article>
-          <Database size={24} />
-          <h2>Production path</h2>
-          <p>MySQL is the chosen database target for hosting, scheduled refreshes, and scaling.</p>
-        </article>
-      </div>
-    </section>
-  );
-}
-
-function RaceLab() {
+function Workspace() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
+  const [raceCard, setRaceCard] = useState<RaceRunner[]>([]);
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [model, setModel] = useState<ModelStatus | null>(null);
   const [trends, setTrends] = useState<Trends | null>(null);
-  const [track, setTrack] = useState("All tracks");
+  const [track, setTrack] = useState(() => localStorageValue(TRACK_FILTER_KEY, "All tracks"));
+  const [search, setSearch] = useState("");
+  const [view, setView] = useState<WorkspaceView>("rankings");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -286,16 +306,21 @@ function RaceLab() {
     setLoading(true);
     setError(null);
     try {
-      const [summaryResult, predictionResult, modelResult, trendResult] = await Promise.all([
-        apiGet<Summary>("/summary"),
-        apiGet<{ predictions: Prediction[] }>("/predictions"),
-        apiGet<ModelStatus>("/model"),
-        apiGet<Trends>("/trends")
-      ]);
+      const [summaryResult, predictionResult, modelResult, trendResult, meetingResult, raceCardResult] =
+        await Promise.all([
+          apiGet<Summary>("/summary"),
+          apiGet<{ predictions: Prediction[]; page: PageMeta }>("/predictions?limit=500"),
+          apiGet<ModelStatus>("/model"),
+          apiGet<Trends>("/trends"),
+          apiGet<{ meetings: Meeting[]; page: PageMeta }>("/meetings?limit=200"),
+          apiGet<{ raceCard: RaceRunner[]; page: PageMeta }>("/race-card?limit=500")
+        ]);
       setSummary(summaryResult);
       setPredictions(predictionResult.predictions);
       setModel(modelResult);
       setTrends(trendResult);
+      setMeetings(meetingResult.meetings);
+      setRaceCard(raceCardResult.raceCard);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load racing data.");
     } finally {
@@ -307,20 +332,52 @@ function RaceLab() {
     void loadData();
   }, []);
 
-  const tracks = useMemo(() => {
-    const unique = new Set(predictions.map((item) => item.track).filter(Boolean) as string[]);
-    return ["All tracks", ...Array.from(unique).sort()];
-  }, [predictions]);
+  useEffect(() => {
+    localStorage.setItem(TRACK_FILTER_KEY, track);
+  }, [track]);
 
-  const filtered = track === "All tracks" ? predictions : predictions.filter((item) => item.track === track);
+  const tracks = useMemo(() => {
+    const unique = new Set([...predictions, ...raceCard].map((item) => item.track).filter(Boolean) as string[]);
+    return ["All tracks", ...Array.from(unique).sort()];
+  }, [predictions, raceCard]);
+
+  const filteredPredictions = useMemo(() => {
+    return predictions.filter((item) => {
+      const matchesTrack = track === "All tracks" || item.track === track;
+      const query = search.trim().toLowerCase();
+      const matchesSearch =
+        !query ||
+        [item.horse, item.jockey, item.trainer, item.owner].some((value) => value?.toLowerCase().includes(query));
+      return matchesTrack && matchesSearch;
+    });
+  }, [predictions, search, track]);
+
+  const filteredRaceCard = useMemo(() => {
+    return raceCard.filter((item) => {
+      const matchesTrack = track === "All tracks" || item.track === track;
+      const query = search.trim().toLowerCase();
+      const matchesSearch =
+        !query ||
+        [item.horse, item.jockey, item.trainer, item.owner].some((value) => value?.toLowerCase().includes(query));
+      return matchesTrack && matchesSearch;
+    });
+  }, [raceCard, search, track]);
+
+  const filteredMeetings = useMemo(() => {
+    return meetings.filter((item) => track === "All tracks" || item.track === track);
+  }, [meetings, track]);
+
+  const topRunner = filteredPredictions[0];
+  const secondRunner = filteredPredictions[1];
+  const dataQuality = model?.evaluation.status === "ok" ? "Holdout active" : "Needs history";
 
   return (
-    <section className="tool-page">
-      <div className="tool-header">
+    <section className="workspace">
+      <div className="workspace-header">
         <div>
-          <div className="eyebrow">Race Lab</div>
-          <h1>Live model rankings</h1>
-          <p>Review predicted win probability, market-implied probability, and value edge.</p>
+          <div className="eyebrow">Race Workspace</div>
+          <h1>Today&apos;s racing desk</h1>
+          <p>Rankings, race cards, model checks, and betting records in one operating view.</p>
         </div>
         <button className="icon-action" onClick={() => void loadData()} disabled={loading} title="Refresh data">
           <RefreshCw size={18} />
@@ -328,39 +385,71 @@ function RaceLab() {
         </button>
       </div>
 
-      {error && <div className="error-banner">{error}</div>}
+      {error && (
+        <div className="error-banner">
+          <strong>API error</strong>
+          <span>{error}</span>
+          <button className="icon-action" onClick={() => void loadData()}>
+            <RefreshCw size={16} />
+            Retry
+          </button>
+        </div>
+      )}
 
       <div className="metric-row">
         <Metric label="Historical runs" value={summary?.historicalRuns.toLocaleString() ?? "-"} />
         <Metric label="Current runners" value={summary?.currentRunners.toLocaleString() ?? "-"} />
-        <Metric label="Training rows" value={model?.trainingRows.toLocaleString() ?? "-"} />
-        <Metric label="Winner rate" value={formatPercent(model?.winnerRate)} />
+        <Metric label="Meetings" value={formatInteger(filteredMeetings.length)} />
         <Metric label="Top-pick holdout" value={formatPercent(model?.evaluation.metrics.top_pick_win_rate)} />
-        <Metric label="Holdout Brier" value={formatNumber(model?.evaluation.metrics.runner_brier_score, 3)} />
+        <Metric label="Data quality" value={dataQuality} />
+        <Metric label="Last refresh" value={formatDate(summary?.lastRefresh)} />
       </div>
 
-      <div className="toolbar">
-        <label>
-          Track
-          <select value={track} onChange={(event) => setTrack(event.target.value)}>
-            {tracks.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
-        <span>Last refresh: {summary?.lastRefresh ?? "Waiting for ingestion"}</span>
-      </div>
+      <div className="workspace-layout">
+        <aside className="control-panel">
+          <div className="panel-title">
+            <Database size={18} />
+            <span>Controls</span>
+          </div>
+          <label>
+            Track
+            <select value={track} onChange={(event) => setTrack(event.target.value)}>
+              {tracks.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Runner search
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Horse, jockey, trainer" />
+          </label>
+          <div className="segmented-control" aria-label="Workspace view">
+            {workspaceViews.map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.view}
+                  className={view === item.view ? "active" : ""}
+                  onClick={() => setView(item.view)}
+                >
+                  <Icon size={16} />
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+        </aside>
 
-      {model?.evaluation && <EvaluationPanel evaluation={model.evaluation} />}
-
-      <PredictionTable rows={filtered} loading={loading} />
-
-      <div className="trend-grid">
-        <TrendTable title="Jockey form" rows={trends?.jockey ?? []} labelKey="jockey" />
-        <TrendTable title="Trainer form" rows={trends?.trainer ?? []} labelKey="trainer" />
-        <TrendTable title="Owner form" rows={trends?.owner ?? []} labelKey="owner" />
+        <section className="workspace-main">
+          <MeetingStrip meetings={filteredMeetings} loading={loading} />
+          <RunnerComparison first={topRunner} second={secondRunner} />
+          {view === "rankings" && <PredictionTable rows={filteredPredictions} loading={loading} />}
+          {view === "race-card" && <RaceCardTable rows={filteredRaceCard} loading={loading} />}
+          {view === "evaluation" && model?.evaluation && <EvaluationPanel evaluation={model.evaluation} model={model} />}
+          {view === "trends" && <TrendGrid trends={trends} />}
+        </section>
       </div>
     </section>
   );
@@ -375,8 +464,73 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function EvaluationPanel({ evaluation }: { evaluation: ModelEvaluation }) {
+function MeetingStrip({ meetings, loading }: { meetings: Meeting[]; loading: boolean }) {
+  if (loading) {
+    return (
+      <div className="meeting-strip">
+        {[0, 1, 2].map((item) => (
+          <div className="meeting-tile skeleton" key={item} />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="meeting-strip">
+      {meetings.length === 0 && <EmptyState title="No meetings found" detail="Change the track filter or refresh race data." />}
+      {meetings.map((meeting) => (
+        <article className="meeting-tile" key={`${meeting.race_date}-${meeting.track}`}>
+          <CalendarDays size={18} />
+          <div>
+            <strong>{meeting.track ?? "-"}</strong>
+            <span>
+              {formatDate(meeting.race_date)} / {meeting.runners} runners / {meeting.races} races
+            </span>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function RunnerComparison({ first, second }: { first?: Prediction; second?: Prediction }) {
+  return (
+    <section className="comparison-panel">
+      <div className="panel-title">
+        <Scale size={18} />
+        <span>Runner comparison</span>
+      </div>
+      <div className="comparison-grid">
+        {[first, second].map((runner, index) => (
+          <article className="runner-card" key={runner?.horse ?? index}>
+            <span>Rank {runner?.suggested_rank ?? index + 1}</span>
+            <strong>{runner?.horse ?? "-"}</strong>
+            <dl>
+              <div>
+                <dt>Win probability</dt>
+                <dd>{formatPercent(runner?.win_probability)}</dd>
+              </div>
+              <div>
+                <dt>Value edge</dt>
+                <dd className={(runner?.value_edge ?? 0) >= 0 ? "positive" : "negative"}>
+                  {formatPercent(runner?.value_edge)}
+                </dd>
+              </div>
+              <div>
+                <dt>Model odds</dt>
+                <dd>{formatNumber(runner?.model_odds)}</dd>
+              </div>
+            </dl>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function EvaluationPanel({ evaluation, model }: { evaluation: ModelEvaluation; model: ModelStatus }) {
   const metrics = evaluation.metrics;
+  const calibration = Math.min(Math.max(metrics.calibration_mae ?? 0, 0), 1);
 
   return (
     <section className="evaluation-panel">
@@ -392,16 +546,17 @@ function EvaluationPanel({ evaluation }: { evaluation: ModelEvaluation }) {
         </div>
       </div>
       <div className="evaluation-grid">
-        <Metric label="Training races" value={formatInteger(evaluation.trainingRaces)} />
-        <Metric label="Validation races" value={formatInteger(evaluation.validationRaces)} />
+        <Metric label="Training rows" value={formatInteger(model.trainingRows)} />
+        <Metric label="Features" value={formatInteger(model.featureCount)} />
         <Metric label="Runner log loss" value={formatNumber(metrics.runner_log_loss, 3)} />
         <Metric label="Market log loss" value={formatNumber(metrics.market_log_loss, 3)} />
         <Metric label="Calibration gap" value={formatPercent(metrics.calibration_mae)} />
         <Metric label="Market top pick" value={formatPercent(metrics.market_top_pick_win_rate)} />
         <Metric label="Mean winner rank" value={formatNumber(metrics.mean_winner_rank, 2)} />
-        <Metric label="Fixed-stake bets" value={formatInteger(metrics.fixed_stake_bets)} />
-        <Metric label="Fixed-stake profit" value={formatSignedNumber(metrics.fixed_stake_profit)} />
         <Metric label="Fixed-stake ROI" value={formatPercent(metrics.fixed_stake_roi)} />
+      </div>
+      <div className="calibration-bar" aria-label="Calibration gap">
+        <span style={{ width: `${calibration * 100}%` }} />
       </div>
     </section>
   );
@@ -409,52 +564,120 @@ function EvaluationPanel({ evaluation }: { evaluation: ModelEvaluation }) {
 
 function PredictionTable({ rows, loading }: { rows: Prediction[]; loading: boolean }) {
   return (
+    <DataTable loading={loading} emptyText="No ranked runners found.">
+      <thead>
+        <tr>
+          <th>Rank</th>
+          <th>Runner</th>
+          <th>Track</th>
+          <th>Jockey</th>
+          <th>Trainer</th>
+          <th>Market odds</th>
+          <th>Model odds</th>
+          <th>Win probability</th>
+          <th>Value edge</th>
+        </tr>
+      </thead>
+      <tbody>
+        {!loading &&
+          rows.map((row) => (
+            <tr key={`${row.race_date}-${row.track}-${row.horse}`}>
+              <td>{row.suggested_rank ?? "-"}</td>
+              <td>
+                <strong>{row.horse ?? "-"}</strong>
+              </td>
+              <td>{row.track ?? "-"}</td>
+              <td>{row.jockey ?? "-"}</td>
+              <td>{row.trainer ?? "-"}</td>
+              <td>{formatNumber(row.odds)}</td>
+              <td>{formatNumber(row.model_odds)}</td>
+              <td>{formatPercent(row.win_probability)}</td>
+              <td className={(row.value_edge ?? 0) >= 0 ? "positive" : "negative"}>
+                {formatPercent(row.value_edge)}
+              </td>
+            </tr>
+          ))}
+        {!loading && rows.length === 0 && (
+          <tr>
+            <td colSpan={9}>No ranked runners found.</td>
+          </tr>
+        )}
+      </tbody>
+    </DataTable>
+  );
+}
+
+function RaceCardTable({ rows, loading }: { rows: RaceRunner[]; loading: boolean }) {
+  return (
+    <DataTable loading={loading} emptyText="No race-card rows found.">
+      <thead>
+        <tr>
+          <th>Runner</th>
+          <th>Track</th>
+          <th>Date</th>
+          <th>Surface</th>
+          <th>Jockey</th>
+          <th>Trainer</th>
+          <th>Odds</th>
+          <th>Draw</th>
+          <th>Rating</th>
+        </tr>
+      </thead>
+      <tbody>
+        {!loading &&
+          rows.map((row) => (
+            <tr key={`${row.race_date}-${row.track}-${row.horse}`}>
+              <td>
+                <strong>{row.horse ?? "-"}</strong>
+              </td>
+              <td>{row.track ?? "-"}</td>
+              <td>{formatDate(row.race_date)}</td>
+              <td>{row.surface ?? "-"}</td>
+              <td>{row.jockey ?? "-"}</td>
+              <td>{row.trainer ?? "-"}</td>
+              <td>{formatNumber(row.odds)}</td>
+              <td>{formatNumber(row.draw, 0)}</td>
+              <td>{formatNumber(row.speed_rating, 0)}</td>
+            </tr>
+          ))}
+        {!loading && rows.length === 0 && (
+          <tr>
+            <td colSpan={9}>No race-card rows found.</td>
+          </tr>
+        )}
+      </tbody>
+    </DataTable>
+  );
+}
+
+function DataTable({ children, loading, emptyText }: { children: ReactNode; loading: boolean; emptyText: string }) {
+  return (
     <div className="table-wrap">
       <table>
-        <thead>
-          <tr>
-            <th>Rank</th>
-            <th>Runner</th>
-            <th>Track</th>
-            <th>Jockey</th>
-            <th>Trainer</th>
-            <th>Market odds</th>
-            <th>Model odds</th>
-            <th>Win probability</th>
-            <th>Value edge</th>
-          </tr>
-        </thead>
-        <tbody>
-          {loading && (
-            <tr>
-              <td colSpan={9}>Loading predictions...</td>
-            </tr>
-          )}
-          {!loading &&
-            rows.map((row) => (
-              <tr key={`${row.race_date}-${row.track}-${row.horse}`}>
-                <td>{row.suggested_rank ?? "-"}</td>
-                <td>
-                  <strong>{row.horse ?? "-"}</strong>
-                </td>
-                <td>{row.track ?? "-"}</td>
-                <td>{row.jockey ?? "-"}</td>
-                <td>{row.trainer ?? "-"}</td>
-                <td>{formatNumber(row.odds)}</td>
-                <td>{formatNumber(row.model_odds)}</td>
-                <td>{formatPercent(row.win_probability)}</td>
-                <td className={(row.value_edge ?? 0) >= 0 ? "positive" : "negative"}>
-                  {formatPercent(row.value_edge)}
+        {loading ? (
+          <tbody>
+            {[0, 1, 2, 3].map((row) => (
+              <tr key={row}>
+                <td colSpan={9}>
+                  <div className="table-skeleton">{emptyText}</div>
                 </td>
               </tr>
             ))}
-          {!loading && rows.length === 0 && (
-            <tr>
-              <td colSpan={9}>No race-card rows found.</td>
-            </tr>
-          )}
-        </tbody>
+          </tbody>
+        ) : (
+          children
+        )}
       </table>
+    </div>
+  );
+}
+
+function TrendGrid({ trends }: { trends: Trends | null }) {
+  return (
+    <div className="trend-grid">
+      <TrendTable title="Jockey form" rows={trends?.jockey ?? []} labelKey="jockey" />
+      <TrendTable title="Trainer form" rows={trends?.trainer ?? []} labelKey="trainer" />
+      <TrendTable title="Owner form" rows={trends?.owner ?? []} labelKey="owner" />
     </div>
   );
 }
@@ -463,13 +686,270 @@ function TrendTable({ title, rows, labelKey }: { title: string; rows: TrendRow[]
   return (
     <article className="trend-table">
       <h2>{title}</h2>
-      {rows.slice(0, 6).map((row) => (
+      {rows.slice(0, 8).map((row) => (
         <div className="trend-row" key={String(row[labelKey])}>
           <span>{String(row[labelKey] ?? "-")}</span>
           <strong>{formatPercent(row.win_rate)}</strong>
         </div>
       ))}
+      {rows.length === 0 && <EmptyState title="No trend rows" detail="Historical data will populate this table." />}
     </article>
+  );
+}
+
+function EmptyState({ title, detail }: { title: string; detail: string }) {
+  return (
+    <div className="empty-state">
+      <strong>{title}</strong>
+      <span>{detail}</span>
+    </div>
+  );
+}
+
+function BetJournal() {
+  const [bets, setBets] = useState<Bet[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(BETS_KEY) ?? "[]") as Bet[];
+    } catch {
+      return [];
+    }
+  });
+  const [draft, setDraft] = useState({
+    horse: "",
+    track: "",
+    stake: "10",
+    odds: "3.00",
+    status: "open" as BetStatus
+  });
+
+  useEffect(() => {
+    localStorage.setItem(BETS_KEY, JSON.stringify(bets));
+  }, [bets]);
+
+  const journal = useMemo(() => {
+    const settled = bets.filter((bet) => bet.status !== "open");
+    const staked = bets.reduce((sum, bet) => sum + bet.stake, 0);
+    const settledStake = settled.reduce((sum, bet) => sum + bet.stake, 0);
+    const profit = settled.reduce((sum, bet) => sum + betProfit(bet), 0);
+    return {
+      count: bets.length,
+      open: bets.filter((bet) => bet.status === "open").length,
+      staked,
+      profit,
+      roi: settledStake > 0 ? profit / settledStake : null
+    };
+  }, [bets]);
+
+  function submitBet(event: FormEvent) {
+    event.preventDefault();
+    const stake = Number(draft.stake);
+    const odds = Number(draft.odds);
+    if (!draft.horse.trim() || !Number.isFinite(stake) || !Number.isFinite(odds) || stake <= 0 || odds <= 1) {
+      return;
+    }
+    const nextBet: Bet = {
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      horse: draft.horse.trim(),
+      track: draft.track.trim(),
+      stake,
+      odds,
+      status: draft.status
+    };
+    setBets((current) => [nextBet, ...current]);
+    setDraft({ horse: "", track: "", stake: "10", odds: "3.00", status: "open" });
+  }
+
+  function updateStatus(id: string, status: BetStatus) {
+    setBets((current) => current.map((bet) => (bet.id === id ? { ...bet, status } : bet)));
+  }
+
+  function removeBet(id: string) {
+    setBets((current) => current.filter((bet) => bet.id !== id));
+  }
+
+  return (
+    <section className="journal-page">
+      <div className="workspace-header">
+        <div>
+          <div className="eyebrow">Bet Journal</div>
+          <h1>Position ledger</h1>
+          <p>Track open and settled positions separately from model performance.</p>
+        </div>
+      </div>
+
+      <div className="metric-row">
+        <Metric label="Recorded bets" value={formatInteger(journal.count)} />
+        <Metric label="Open bets" value={formatInteger(journal.open)} />
+        <Metric label="Total staked" value={formatNumber(journal.staked)} />
+        <Metric label="Settled profit" value={formatSignedNumber(journal.profit)} />
+        <Metric label="Settled ROI" value={formatPercent(journal.roi)} />
+      </div>
+
+      <form className="journal-form" onSubmit={submitBet}>
+        <label>
+          Horse
+          <input value={draft.horse} onChange={(event) => setDraft({ ...draft, horse: event.target.value })} />
+        </label>
+        <label>
+          Track
+          <input value={draft.track} onChange={(event) => setDraft({ ...draft, track: event.target.value })} />
+        </label>
+        <label>
+          Stake
+          <input type="number" min="0" step="0.01" value={draft.stake} onChange={(event) => setDraft({ ...draft, stake: event.target.value })} />
+        </label>
+        <label>
+          Odds
+          <input type="number" min="1.01" step="0.01" value={draft.odds} onChange={(event) => setDraft({ ...draft, odds: event.target.value })} />
+        </label>
+        <label>
+          Status
+          <select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as BetStatus })}>
+            <option value="open">Open</option>
+            <option value="won">Won</option>
+            <option value="lost">Lost</option>
+          </select>
+        </label>
+        <button className="primary-action" type="submit">
+          <WalletCards size={18} />
+          Add bet
+        </button>
+      </form>
+
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Horse</th>
+              <th>Track</th>
+              <th>Stake</th>
+              <th>Odds</th>
+              <th>Status</th>
+              <th>Profit</th>
+              <th>Date</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {bets.map((bet) => (
+              <tr key={bet.id}>
+                <td>
+                  <strong>{bet.horse}</strong>
+                </td>
+                <td>{bet.track || "-"}</td>
+                <td>{formatNumber(bet.stake)}</td>
+                <td>{formatNumber(bet.odds)}</td>
+                <td>
+                  <select value={bet.status} onChange={(event) => updateStatus(bet.id, event.target.value as BetStatus)}>
+                    <option value="open">Open</option>
+                    <option value="won">Won</option>
+                    <option value="lost">Lost</option>
+                  </select>
+                </td>
+                <td className={betProfit(bet) >= 0 ? "positive" : "negative"}>{bet.status === "open" ? "-" : formatSignedNumber(betProfit(bet))}</td>
+                <td>{formatDate(bet.createdAt)}</td>
+                <td>
+                  <button
+                    className="icon-action square-action danger-action"
+                    onClick={() => removeBet(bet.id)}
+                    title="Remove bet"
+                    aria-label={`Remove ${bet.horse} from bet journal`}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {bets.length === 0 && (
+              <tr>
+                <td colSpan={8}>No journal rows yet.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function betProfit(bet: Bet) {
+  if (bet.status === "open") return 0;
+  return bet.status === "won" ? bet.stake * (bet.odds - 1) : -bet.stake;
+}
+
+function MethodologyPage() {
+  return (
+    <InfoPage
+      eyebrow="Methodology"
+      title="Model review before race decisions"
+      intro="The current model uses historical result rows, pre-race features, chronological holdout evaluation, and market baselines."
+      items={[
+        ["Inputs", "Race-card attributes, market odds, ratings, field size, and entity form summaries."],
+        ["Validation", "The latest chronological races are held out from training for model-quality checks."],
+        ["Outputs", "Rank, win probability, model odds, value edge, and evaluation metrics stay visible together."]
+      ]}
+    />
+  );
+}
+
+function ResponsibleUsePage() {
+  return (
+    <InfoPage
+      eyebrow="Responsible Use"
+      title="Decision support, not certainty"
+      intro="Racing outcomes remain uncertain. The interface separates predictive metrics from betting profit and keeps settled journal results visible."
+      items={[
+        ["Bankroll", "Use stake sizes that stay within a pre-defined budget."],
+        ["Review", "Treat model drift, missing data, and poor holdout results as reasons to pause."],
+        ["Language", "No screen in the product should guarantee profit or imply automatic model improvement."]
+      ]}
+    />
+  );
+}
+
+function ContactPage() {
+  return (
+    <InfoPage
+      eyebrow="Contact"
+      title="Support and operations"
+      intro="The platform now exposes request IDs in API responses and headers so support work can start from a concrete trace."
+      items={[
+        ["API docs", "Open /docs on the local backend for the generated FastAPI reference."],
+        ["Issue reports", "Include the API request ID, browser page, filter state, and race date."],
+        ["Operations", "Provider ingestion, model checks, and frontend release work stay on the development branch before main."]
+      ]}
+    />
+  );
+}
+
+function InfoPage({
+  eyebrow,
+  title,
+  intro,
+  items
+}: {
+  eyebrow: string;
+  title: string;
+  intro: string;
+  items: [string, string][];
+}) {
+  return (
+    <section className="content-band">
+      <div className="section-heading">
+        <div className="eyebrow">{eyebrow}</div>
+        <h1>{title}</h1>
+        <p>{intro}</p>
+      </div>
+      <div className="info-grid">
+        {items.map(([label, detail]) => (
+          <article key={label}>
+            <h2>{label}</h2>
+            <p>{detail}</p>
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 
