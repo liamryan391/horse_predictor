@@ -1,60 +1,108 @@
-# Horse Racing Software + App
+# Horse Predictor
 
-This project now has **two parts**:
+Professional horse racing intelligence platform powered by API ingestion, MySQL-ready storage, a FastAPI backend, and a React/TypeScript dashboard.
 
-1. **Data Pipeline API Ingestion** (`data_pipeline.py`) to fetch horse info and build datasets.
-2. **Prediction App** (`horse_racing_app.py`) to train on past races and score current races.
+## Current architecture
 
-## Should SQL be used?
+- `data_pipeline.py`: pulls sample or API data and writes SQL tables.
+- `racing_storage.py`: SQLAlchemy storage layer for MySQL in production and SQLite for local development.
+- `api.py`: FastAPI service for predictions, trends, race cards, and ingestion health.
+- `frontend/`: React + TypeScript website with Home, About Us, and Race Lab pages.
+- `horse_racing_app.py`: legacy Streamlit dashboard kept for quick internal checks.
 
-Yes — SQL is a good fit for this use case.
+## Database choice
 
-- It keeps race/bet/jockey/owner tables structured and queryable.
-- You can track ingestion timestamps and history cleanly.
-- It scales better than only CSV files when data grows.
+MySQL is the chosen production database. It is widely supported, easy to host, and works cleanly with Python through SQLAlchemy and PyMySQL.
 
-This project includes SQLite support in `data_pipeline.py` and creates:
+For local development, the project still defaults to `horse_racing.db` so you can run everything before installing MySQL. To use MySQL, set:
 
-- `races_historical` table
-- `races_current` table
-
-You can later switch to Postgres/MySQL with the same table design.
-
-## API ingestion setup
-
-Set API credentials (example):
-
-```bash
-export HORSE_API_BASE_URL="https://api.your-provider.com/v1"
-export HORSE_API_KEY="your_api_key"
+```powershell
+$env:DATABASE_URL="mysql+pymysql://horse_user:replace_this_password@localhost:3306/horse_predictor"
 ```
 
-Run ingestion:
+## Fixing the pandas error
 
-```bash
-python data_pipeline.py --days-ahead 7
+Run project commands through the virtual environment:
+
+```powershell
+.\.venv\Scripts\python.exe data_pipeline.py --provider sample
 ```
 
-This will:
+Do not run this project with:
 
-- Call `/historical-races`
-- Call `/current-races?days_ahead=7`
-- Create `sample_historical_data.csv`
-- Create `sample_current_races.csv`
-- Load both datasets into `horse_racing.db`
+```powershell
+c:\python313\python.exe
+```
 
-## Prediction app setup
+That system Python does not have the repo dependencies installed. See [DEVNOTES.md](DEVNOTES.md) for the VS Code setup.
 
-```bash
+## Setup
+
+```powershell
 python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-streamlit run horse_racing_app.py
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Then upload the generated CSVs (or your own files).
+Seed the local database:
 
-## Required CSV columns
+```powershell
+.\.venv\Scripts\python.exe data_pipeline.py --provider sample
+```
+
+Install frontend dependencies:
+
+```powershell
+cd frontend
+npm.cmd install
+```
+
+## Run the app
+
+Backend:
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn api:app --reload --host 127.0.0.1 --port 8000
+```
+
+Frontend:
+
+```powershell
+cd frontend
+npm.cmd run dev
+```
+
+Open:
+
+```text
+http://127.0.0.1:5173
+```
+
+## API ingestion
+
+OurHub Racing race-card ingestion:
+
+```powershell
+$env:HORSE_API_KEY="your_api_key"
+.\.venv\Scripts\python.exe data_pipeline.py --provider ourhub --days-ahead 0
+```
+
+The Racing API:
+
+```powershell
+$env:RACING_API_USERNAME="your_username"
+$env:RACING_API_PASSWORD="your_password"
+.\.venv\Scripts\python.exe data_pipeline.py --provider theracingapi
+```
+
+Run continuously with an hourly refresh:
+
+```powershell
+.\.venv\Scripts\python.exe data_pipeline.py --provider theracingapi --repeat-hourly
+```
+
+## Required data fields
+
+Historical rows need:
 
 - `race_date`
 - `track`
@@ -67,7 +115,9 @@ Then upload the generated CSVs (or your own files).
 - `odds`
 - `finishing_position`
 
-## Optional columns
+Current race-card rows need the same fields except `finishing_position`.
+
+Optional model features:
 
 - `horse_age`
 - `horse_weight`
@@ -81,5 +131,4 @@ Then upload the generated CSVs (or your own files).
 
 ## Notes
 
-- This is decision-support software, not guaranteed betting advice.
-- For production: add API retries, schema validation, and automated model evaluation.
+This is decision-support software, not guaranteed betting advice. Model quality depends on the amount, accuracy, and freshness of historical results. For production, add schema validation, automated backtesting, authentication, and a managed MySQL database.
