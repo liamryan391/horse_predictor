@@ -41,6 +41,7 @@ One-command local startup:
 Seed the database:
 
 ```powershell
+.\.venv\Scripts\python.exe -m alembic upgrade head
 .\.venv\Scripts\python.exe data_pipeline.py --provider sample
 ```
 
@@ -94,6 +95,7 @@ $env:DATABASE_URL="mysql+pymysql://horse_user:replace_this_password@localhost:33
 Then run:
 
 ```powershell
+.\.venv\Scripts\python.exe -m alembic upgrade head
 .\.venv\Scripts\python.exe data_pipeline.py --provider sample
 .\.venv\Scripts\python.exe -m uvicorn api:app --reload --host 127.0.0.1 --port 8000
 ```

@@ -53,6 +53,7 @@ For a one-command Windows startup:
 Seed the local database:
 
 ```powershell
+.\.venv\Scripts\python.exe -m alembic upgrade head
 .\.venv\Scripts\python.exe data_pipeline.py --provider sample
 ```
 
@@ -149,3 +150,4 @@ This is decision-support software, not guaranteed betting advice. Model quality 
 See [ROADMAP.md](ROADMAP.md) for the planned path from prototype to production-ready platform.
 See [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) for imported project context and [docs/WORKFLOW.md](docs/WORKFLOW.md) for the branch and PR workflow.
 See [docs/SETUP.md](docs/SETUP.md) for Windows, Linux/macOS, Docker, and configuration setup.
+See [docs/DATABASE.md](docs/DATABASE.md) for schema, migration, and ingestion-write notes.

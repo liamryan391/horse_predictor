@@ -123,7 +123,7 @@ Create normalized tables for:
 - Add pagination and filtered queries.
 - Add database health reporting.
 
-Current risk: `racing_storage.write_races(..., replace=True)` deletes existing table rows before inserting new data. This is acceptable for local sample data, but it would lose historical snapshots in production.
+Current inspection: Alembic migration scaffolding, normalized schema tables, and provider upsert writes are in place. Sample ingestion still uses replace mode for repeatable local demos.
 
 ## Phase 3: Racing API Ingestion
 

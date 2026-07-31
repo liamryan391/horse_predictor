@@ -76,6 +76,7 @@ Backend setup:
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m alembic upgrade head
 .\.venv\Scripts\python.exe data_pipeline.py --provider sample
 .\.venv\Scripts\python.exe -m uvicorn api:app --reload --host 127.0.0.1 --port 8000
 ```
@@ -93,6 +94,7 @@ Linux/macOS equivalents:
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m alembic upgrade head
 .venv/bin/python data_pipeline.py --provider sample
 .venv/bin/python -m uvicorn api:app --reload --host 127.0.0.1 --port 8000
 ```

@@ -6,64 +6,19 @@ from typing import Dict
 
 import pandas as pd
 from sqlalchemy import (
-    Column,
-    Date,
-    DateTime,
-    Float,
-    Integer,
-    MetaData,
-    String,
-    Table,
-    Text,
+    and_,
     create_engine,
     delete,
     func,
     insert,
     select,
     text,
+    update,
 )
 from sqlalchemy.engine import Engine
 
-from settings import BASE_DIR, resolve_database_url
-
-RACE_COLUMNS = [
-    "race_date",
-    "track",
-    "distance",
-    "surface",
-    "horse",
-    "jockey",
-    "owner",
-    "trainer",
-    "odds",
-    "finishing_position",
-    "horse_age",
-    "horse_weight",
-    "draw",
-    "speed_rating",
-    "class_rating",
-    "days_since_last_run",
-    "past_bets_count",
-    "past_bets_profit",
-    "weather",
-]
-
-NUMERIC_COLUMNS = [
-    "distance",
-    "odds",
-    "finishing_position",
-    "horse_age",
-    "horse_weight",
-    "draw",
-    "speed_rating",
-    "class_rating",
-    "days_since_last_run",
-    "past_bets_count",
-    "past_bets_profit",
-]
-
-TABLES = {"historical": "races_historical", "current": "races_current"}
-VALID_TABLES = set(TABLES.values())
+from schema import METADATA, NUMERIC_COLUMNS, RACE_COLUMNS, RACE_IDENTITY_COLUMNS, TABLES, VALID_TABLES
+from settings import resolve_database_url
 
 
 def utc_now() -> datetime:
@@ -72,52 +27,6 @@ def utc_now() -> datetime:
 
 def get_engine(database_url: str | Path | None = None) -> Engine:
     return create_engine(resolve_database_url(database_url), future=True, pool_pre_ping=True)
-
-
-def build_metadata() -> MetaData:
-    metadata = MetaData()
-    for table_name in VALID_TABLES:
-        Table(
-            table_name,
-            metadata,
-            Column("race_date", Date, index=True),
-            Column("track", String(120), index=True),
-            Column("distance", Float),
-            Column("surface", String(80)),
-            Column("horse", String(160), index=True),
-            Column("jockey", String(160)),
-            Column("owner", String(160)),
-            Column("trainer", String(160)),
-            Column("odds", Float),
-            Column("finishing_position", Float),
-            Column("horse_age", Float),
-            Column("horse_weight", Float),
-            Column("draw", Float),
-            Column("speed_rating", Float),
-            Column("class_rating", Float),
-            Column("days_since_last_run", Float),
-            Column("past_bets_count", Float),
-            Column("past_bets_profit", Float),
-            Column("weather", String(120)),
-            Column("ingested_at", DateTime(timezone=True)),
-            Column("source", String(80)),
-        )
-
-    Table(
-        "ingestion_log",
-        metadata,
-        Column("id", Integer, primary_key=True, autoincrement=True),
-        Column("table_name", String(80), nullable=False),
-        Column("source", String(80), nullable=False),
-        Column("row_count", Integer, nullable=False),
-        Column("status", String(40), nullable=False),
-        Column("message", Text),
-        Column("ingested_at", DateTime(timezone=True), nullable=False),
-    )
-    return metadata
-
-
-METADATA = build_metadata()
 
 
 def init_db(database_url: str | Path | None = None) -> None:
@@ -141,12 +50,38 @@ def normalize_race_frame(df: pd.DataFrame, current_mode: bool = False) -> pd.Dat
     return work_df[RACE_COLUMNS]
 
 
+def clean_record(record: dict) -> dict:
+    clean = {}
+    for key, value in record.items():
+        clean[key] = None if pd.isna(value) else value
+    return clean
+
+
+def identity_filter(table, record: dict):
+    filters = []
+    for column_name in RACE_IDENTITY_COLUMNS:
+        column = table.c[column_name]
+        value = record.get(column_name)
+        filters.append(column.is_(None) if value is None else column == value)
+    return and_(*filters)
+
+
+def upsert_race_records(conn, table, records: list[dict]) -> None:
+    for record in records:
+        match = identity_filter(table, record)
+        exists = conn.execute(select(func.count()).select_from(table).where(match)).scalar_one()
+        if exists:
+            conn.execute(update(table).where(match).values(record))
+        else:
+            conn.execute(insert(table), record)
+
+
 def write_races(
     database_url: str | Path | None,
     table_name: str,
     df: pd.DataFrame,
     source: str,
-    replace: bool = True,
+    replace: bool = False,
 ) -> int:
     if table_name not in VALID_TABLES:
         raise ValueError(f"Unsupported table: {table_name}")
@@ -160,12 +95,16 @@ def write_races(
     write_df = normalize_race_frame(df, current_mode=current_mode)
     write_df["ingested_at"] = utc_now()
     write_df["source"] = source
+    records = [clean_record(record) for record in write_df.to_dict(orient="records")]
+    started_at = utc_now()
 
     with engine.begin() as conn:
         if replace:
             conn.execute(delete(table))
-        if not write_df.empty:
-            conn.execute(insert(table), write_df.to_dict(orient="records"))
+            if records:
+                conn.execute(insert(table), records)
+        elif records:
+            upsert_race_records(conn, table, records)
         conn.execute(
             insert(log_table),
             {
@@ -175,6 +114,18 @@ def write_races(
                 "status": "success",
                 "message": None,
                 "ingested_at": utc_now(),
+            },
+        )
+        conn.execute(
+            insert(METADATA.tables["api_ingestion_runs"]),
+            {
+                "provider": source,
+                "target_table": table_name,
+                "status": "success",
+                "row_count": len(records),
+                "started_at": started_at,
+                "completed_at": utc_now(),
+                "message": "replace" if replace else "upsert",
             },
         )
 
@@ -208,8 +159,8 @@ def ingestion_status(database_url: str | Path | None) -> pd.DataFrame:
         return pd.read_sql_query(
             text(
                 """
-                SELECT table_name, source, row_count, status, message, ingested_at
-                FROM ingestion_log
+                SELECT target_table AS table_name, provider AS source, row_count, status, message, completed_at AS ingested_at
+                FROM api_ingestion_runs
                 ORDER BY id DESC
                 LIMIT 20
                 """
@@ -226,6 +177,6 @@ def seed_database_from_samples(
     historical_df = pd.read_csv(historical_csv)
     current_df = pd.read_csv(current_csv)
     return {
-        "historical": write_races(database_url, TABLES["historical"], historical_df, source="sample"),
-        "current": write_races(database_url, TABLES["current"], current_df, source="sample"),
+        "historical": write_races(database_url, TABLES["historical"], historical_df, source="sample", replace=True),
+        "current": write_races(database_url, TABLES["current"], current_df, source="sample", replace=True),
     }

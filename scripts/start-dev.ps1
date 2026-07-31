@@ -22,6 +22,7 @@ if (!$SkipInstall) {
     }
 }
 
+& $Python -m alembic upgrade head
 & $Python data_pipeline.py --provider sample
 
 $ApiJob = Start-Job -Name horse-predictor-api -ScriptBlock {

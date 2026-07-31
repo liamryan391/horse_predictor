@@ -9,6 +9,7 @@ if [ ! -x ".venv/bin/python" ]; then
 fi
 
 ".venv/bin/python" -m pip install -r requirements.txt
+".venv/bin/python" -m alembic upgrade head
 ".venv/bin/python" data_pipeline.py --provider sample
 
 if [ ! -d "frontend/node_modules" ]; then

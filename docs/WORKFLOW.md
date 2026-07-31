@@ -33,6 +33,7 @@ npm.cmd run build
 Run ingestion with sample data:
 
 ```powershell
+.\.venv\Scripts\python.exe -m alembic upgrade head
 .\.venv\Scripts\python.exe data_pipeline.py --provider sample
 ```
 
