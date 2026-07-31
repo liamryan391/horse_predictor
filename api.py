@@ -3,10 +3,12 @@ from __future__ import annotations
 import contextvars
 import logging
 import math
+import re
 import time
 import uuid
 from collections import defaultdict, deque
 from datetime import date, datetime, timezone
+from secrets import compare_digest
 from typing import Annotated, Any, Literal
 
 import pandas as pd
@@ -15,6 +17,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from observability import configure_logging
 from api_contracts import (
@@ -27,6 +30,7 @@ from api_contracts import (
     ModelStatusResponse,
     PageMeta,
     PredictionsResponse,
+    ProductSafeguardsResponse,
     RaceCardResponse,
     RacesResponse,
     ReadinessResponse,
@@ -56,13 +60,15 @@ logger = logging.getLogger("horse_predictor.api")
 request_id_context: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
 rate_limit_hits: dict[str, deque[float]] = defaultdict(deque)
 admin_auth = HTTPBearer(auto_error=False)
+REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 
 app = FastAPI(
     title="Horse Predictor API",
     version="0.3.0",
     description="Versioned API for race cards, model predictions, ingestion status, and model evaluation.",
-    responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}, 429: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+    responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 413: {"model": ErrorResponse}, 422: {"model": ErrorResponse}, 429: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(SETTINGS.allowed_hosts))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(SETTINGS.backend_cors_origins),
@@ -79,8 +85,35 @@ def request_id() -> str:
     return request_id_context.get()
 
 
+def normalize_request_id(value: str | None) -> str:
+    candidate = (value or "").strip()
+    if REQUEST_ID_PATTERN.fullmatch(candidate):
+        return candidate
+    return uuid.uuid4().hex
+
+
 def error_payload(status_code: int, detail: str) -> dict[str, Any]:
     return {"error": {"requestId": request_id(), "statusCode": status_code, "detail": detail}}
+
+
+def content_length_too_large(request: Request) -> bool:
+    content_length = request.headers.get("content-length")
+    if not content_length:
+        return False
+    try:
+        return int(content_length) > SETTINGS.max_request_body_bytes
+    except ValueError:
+        return False
+
+
+def apply_security_headers(response: Any) -> None:
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    response.headers.setdefault("Cache-Control", "no-store")
+    if SETTINGS.is_deployed_environment:
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 
 
 def client_key(request: Request) -> str:
@@ -108,13 +141,17 @@ def is_rate_limited(key: str) -> bool:
 
 @app.middleware("http")
 async def request_context_middleware(request: Request, call_next):
-    incoming_request_id = request.headers.get("x-request-id")
-    active_request_id = incoming_request_id or uuid.uuid4().hex
+    active_request_id = normalize_request_id(request.headers.get("x-request-id"))
     token = request_id_context.set(active_request_id)
     start = time.monotonic()
 
     try:
-        if is_rate_limited(client_key(request)):
+        if content_length_too_large(request):
+            response = JSONResponse(
+                status_code=413,
+                content=error_payload(413, "Request body is too large."),
+            )
+        elif is_rate_limited(client_key(request)):
             response = JSONResponse(
                 status_code=429,
                 content=error_payload(429, "API rate limit exceeded. Try again shortly."),
@@ -122,6 +159,7 @@ async def request_context_middleware(request: Request, call_next):
         else:
             response = await call_next(request)
         response.headers["X-Request-ID"] = active_request_id
+        apply_security_headers(response)
         return response
     finally:
         elapsed_ms = round((time.monotonic() - start) * 1000, 2)
@@ -306,7 +344,7 @@ def require_admin(credentials: HTTPAuthorizationCredentials | None = Depends(adm
         return
     if not credentials or credentials.scheme.lower() != "bearer":
         raise HTTPException(status_code=401, detail="Administrative token required.", headers={"WWW-Authenticate": "Bearer"})
-    if credentials.credentials != SETTINGS.api_auth_token:
+    if not compare_digest(credentials.credentials, SETTINGS.api_auth_token):
         raise HTTPException(status_code=403, detail="Administrative token is invalid.")
 
 
@@ -352,6 +390,28 @@ def summary() -> dict[str, Any]:
         "currentRunners": counts["current"],
         "lastRefresh": last_refresh,
         "dataFreshness": data_freshness(last_refresh),
+    }
+
+
+@router.get("/safeguards", response_model=ProductSafeguardsResponse)
+def safeguards() -> dict[str, Any]:
+    return {
+        "requestId": request_id(),
+        "responsibleUseNotice": "Horse Predictor is decision-support software, not betting advice or a guaranteed-return system.",
+        "limitations": [
+            "Predictions depend on provider coverage, data freshness, and historical data quality.",
+            "Holdout metrics can drift when tracks, fields, weather, or provider schemas change.",
+            "Value edges are model estimates and should be reviewed alongside bankroll controls and market context.",
+        ],
+        "dataLicensingNotice": SETTINGS.data_license_reference
+        or "Only display race-card, odds, and result data that the operator is licensed to use.",
+        "privacyNotice": "The current bet journal stores entries in browser local storage; do not enter personal data until account storage and a published privacy policy are configured.",
+        "termsNotice": "Production launch requires published terms of use and no guaranteed-profit claims in product or marketing copy.",
+        "links": {
+            "responsibleGambling": SETTINGS.responsible_gambling_url or None,
+            "privacyPolicy": SETTINGS.privacy_policy_url or None,
+            "termsOfUse": SETTINGS.terms_of_use_url or None,
+        },
     }
 
 

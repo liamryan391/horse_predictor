@@ -45,6 +45,12 @@ Invoke-WebRequest -UseBasicParsing -Uri http://127.0.0.1:8000/api/v1/health
 Invoke-WebRequest -UseBasicParsing -Uri http://127.0.0.1:5173
 ```
 
+Run the production-readiness API smoke check against a live API:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\production-readiness-check.py --base-url http://127.0.0.1:8000
+```
+
 When `agent-browser` is available on PATH, use it for the visual pass:
 
 ```powershell

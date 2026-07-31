@@ -1,15 +1,23 @@
 from __future__ import annotations
 
-from pathlib import Path
+from dataclasses import replace
 import os
+from pathlib import Path
 import tempfile
 import unittest
 
 _TEMP_DIR = tempfile.TemporaryDirectory()
 os.environ["DATABASE_URL"] = f"sqlite:///{(Path(_TEMP_DIR.name) / 'api_contracts.db').as_posix()}"
 
-from api import entity_profile, health, meetings, predictions, race_card, ready, summary
-from api_contracts import HealthResponse, PredictionsResponse, RaceCardResponse, ReadinessResponse, SummaryResponse
+from api import SETTINGS, entity_profile, health, meetings, normalize_request_id, predictions, race_card, ready, safeguards, summary
+from api_contracts import (
+    HealthResponse,
+    PredictionsResponse,
+    ProductSafeguardsResponse,
+    RaceCardResponse,
+    ReadinessResponse,
+    SummaryResponse,
+)
 
 
 class APIContractTests(unittest.TestCase):
@@ -34,6 +42,44 @@ class APIContractTests(unittest.TestCase):
 
         self.assertIn(response.dataFreshness.status, {"fresh", "stale", "missing", "unknown"})
         self.assertEqual(response.lastRefresh, response.dataFreshness.lastRefresh)
+
+    def test_safeguards_endpoint_exposes_launch_policy_contract(self) -> None:
+        response = ProductSafeguardsResponse(**safeguards())
+
+        self.assertIn("not betting advice", response.responsibleUseNotice.lower())
+        self.assertGreaterEqual(len(response.limitations), 3)
+        self.assertIn("responsibleGambling", response.links)
+        self.assertIn("privacyPolicy", response.links)
+        self.assertIn("termsOfUse", response.links)
+
+    def test_request_id_sanitizer_rejects_unsafe_values(self) -> None:
+        self.assertEqual("trace-123_:.ok", normalize_request_id("trace-123_:.ok"))
+
+        sanitized = normalize_request_id("../" * 40)
+
+        self.assertEqual(32, len(sanitized))
+        self.assertNotIn("/", sanitized)
+
+    def test_deployed_runtime_rejects_weak_launch_config(self) -> None:
+        candidate = replace(
+            SETTINGS,
+            app_env="production",
+            database_url="sqlite:///local.db",
+            backend_cors_origins=("http://horse-predictor.example.com",),
+            allowed_hosts=(),
+            api_auth_token="short",
+            max_request_body_bytes=512,
+        )
+
+        with self.assertRaises(RuntimeError) as context:
+            candidate.validate_runtime()
+
+        message = str(context.exception)
+        self.assertIn("managed SQL", message)
+        self.assertIn("ALLOWED_HOSTS", message)
+        self.assertIn("HTTPS", message)
+        self.assertIn("32 characters", message)
+        self.assertIn("MAX_REQUEST_BODY_BYTES", message)
 
     def test_race_card_supports_runner_search(self) -> None:
         response = RaceCardResponse(**race_card(horse="Golden"))

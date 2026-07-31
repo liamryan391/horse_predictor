@@ -7,6 +7,7 @@ import {
   CalendarDays,
   ClipboardList,
   Database,
+  ExternalLink,
   Moon,
   RefreshCw,
   Scale,
@@ -155,6 +156,16 @@ type Trends = {
   owner: TrendRow[];
 };
 
+type ProductSafeguards = {
+  requestId: string;
+  responsibleUseNotice: string;
+  limitations: string[];
+  dataLicensingNotice: string;
+  privacyNotice: string;
+  termsNotice: string;
+  links: Record<string, string | null>;
+};
+
 const navigation: { page: Page; label: string; icon: LucideIcon }[] = [
   { page: "workspace", label: "Workspace", icon: BarChart3 },
   { page: "journal", label: "Bet Journal", icon: WalletCards },
@@ -175,6 +186,20 @@ const API_PREFIX = "/api/v1";
 const TRACK_FILTER_KEY = "horse-predictor-track-filter";
 const THEME_KEY = "horse-predictor-theme";
 const BETS_KEY = "horse-predictor-bets";
+const DEFAULT_SAFEGUARDS: ProductSafeguards = {
+  requestId: "-",
+  responsibleUseNotice: "Horse Predictor is decision-support software, not betting advice or a guaranteed-return system.",
+  limitations: [
+    "Predictions depend on provider coverage, data freshness, and historical data quality.",
+    "Holdout metrics can drift when tracks, fields, weather, or provider schemas change.",
+    "Value edges are model estimates and should be reviewed alongside bankroll controls and market context."
+  ],
+  dataLicensingNotice: "Only display race-card, odds, and result data that the operator is licensed to use.",
+  privacyNotice:
+    "The current bet journal stores entries in browser local storage; do not enter personal data until account storage and a published privacy policy are configured.",
+  termsNotice: "Production launch requires published terms of use and no guaranteed-profit claims in product or marketing copy.",
+  links: {}
+};
 
 function formatPercent(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(value)) return "-";
@@ -874,18 +899,73 @@ function MethodologyPage() {
 }
 
 function ResponsibleUsePage() {
+  const [safeguards, setSafeguards] = useState<ProductSafeguards>(DEFAULT_SAFEGUARDS);
+
+  useEffect(() => {
+    apiGet<ProductSafeguards>("/safeguards")
+      .then(setSafeguards)
+      .catch(() => setSafeguards(DEFAULT_SAFEGUARDS));
+  }, []);
+
+  const links = Object.entries(safeguards.links).filter((entry): entry is [string, string] => Boolean(entry[1]));
+
   return (
-    <InfoPage
-      eyebrow="Responsible Use"
-      title="Decision support, not certainty"
-      intro="Racing outcomes remain uncertain. The interface separates predictive metrics from betting profit and keeps settled journal results visible."
-      items={[
-        ["Bankroll", "Use stake sizes that stay within a pre-defined budget."],
-        ["Review", "Treat model drift, missing data, and poor holdout results as reasons to pause."],
-        ["Language", "No screen in the product should guarantee profit or imply automatic model improvement."]
-      ]}
-    />
+    <section className="content-band">
+      <div className="section-heading">
+        <div className="eyebrow">Responsible Use</div>
+        <h1>Decision support, not certainty</h1>
+        <p>{safeguards.responsibleUseNotice}</p>
+      </div>
+      <div className="info-grid safeguard-grid">
+        <article>
+          <h2>Model limits</h2>
+          <ul className="notice-list">
+            {safeguards.limitations.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </article>
+        <article>
+          <h2>Data licensing</h2>
+          <p>{safeguards.dataLicensingNotice}</p>
+        </article>
+        <article>
+          <h2>Privacy</h2>
+          <p>{safeguards.privacyNotice}</p>
+        </article>
+        <article>
+          <h2>Terms</h2>
+          <p>{safeguards.termsNotice}</p>
+        </article>
+        <article>
+          <h2>Bankroll</h2>
+          <p>Use stake sizes that stay inside a pre-defined budget and pause when data quality or holdout metrics degrade.</p>
+        </article>
+        <article>
+          <h2>Policy links</h2>
+          {links.length === 0 ? (
+            <p>Policy URLs must be configured before production launch.</p>
+          ) : (
+            <div className="link-list">
+              {links.map(([key, url]) => (
+                <a href={url} key={key} target="_blank" rel="noreferrer">
+                  <ExternalLink size={16} />
+                  {formatPolicyLabel(key)}
+                </a>
+              ))}
+            </div>
+          )}
+        </article>
+      </div>
+    </section>
   );
+}
+
+function formatPolicyLabel(value: string) {
+  return value
+    .replace(/([A-Z])/g, " $1")
+    .replace(/^./, (match) => match.toUpperCase())
+    .trim();
 }
 
 function ContactPage() {

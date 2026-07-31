@@ -19,6 +19,7 @@ Required staging values:
 - `APP_ENV=staging`
 - `DATABASE_URL`
 - `BACKEND_CORS_ORIGINS`
+- `ALLOWED_HOSTS`
 - `API_AUTH_TOKEN`
 - `VITE_API_BASE_URL`
 - provider credentials when moving beyond `HORSE_API_PROVIDER=sample`
@@ -26,8 +27,10 @@ Required staging values:
 Recommended staging values:
 
 - `LOG_FORMAT=json`
+- `MAX_REQUEST_BODY_BYTES=1048576`
 - `DATA_FRESHNESS_MAX_AGE_HOURS=24`
 - `API_RATE_LIMIT_PER_MINUTE=240`
+- `RESPONSIBLE_GAMBLING_URL`, `PRIVACY_POLICY_URL`, and `TERMS_OF_USE_URL` before any public launch review
 
 ## Release Flow
 
@@ -75,6 +78,7 @@ Monitor:
 - `/api/v1/health`
 - `/api/v1/ready`
 - `/api/v1/ingestion-status`
+- `/api/v1/safeguards`
 - `/api/v1/model/evaluation`
 - frontend freshness indicator from `/api/v1/summary`
 
@@ -87,6 +91,8 @@ The summary endpoint returns `dataFreshness.status`, `ageHours`, and `maxAgeHour
 - Managed MySQL connection works.
 - `alembic upgrade head` reaches the latest revision.
 - `/api/v1/ready` returns `ok`.
+- `/api/v1/safeguards` returns responsible-use, licensing, privacy, and terms notices.
+- `python scripts/production-readiness-check.py --base-url <api-url>` passes.
 - Ingestion worker records a successful run.
 - Frontend can load meetings, race cards, predictions, model evaluation, and trends.
 - HTTPS domain and CORS origins match exactly.

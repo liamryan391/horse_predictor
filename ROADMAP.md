@@ -403,6 +403,8 @@ Current inspection: staging can emit JSON application logs, and the staging runb
 - Backup restoration test.
 - API abuse protections.
 
+Current inspection: deployed runtime validation now requires managed SQL, HTTPS CORS origins, explicit API host allowlisting, and a strong admin token; API responses get baseline security headers, request IDs are sanitized, request body size is limited, admin tokens use constant-time comparison, and Dependabot is configured for Python/npm/GitHub Actions. Secret rotation, database roles, external rate limiting, and backup restore execution remain operator tasks.
+
 ### 9.2 Product Safeguards
 
 - Responsible gambling notice.
@@ -412,6 +414,8 @@ Current inspection: staging can emit JSON application logs, and the staging runb
 - Privacy policy for user accounts and bet history.
 - Terms of use.
 
+Current inspection: `/api/v1/safeguards` and the frontend Responsible Use page now surface responsible-use, model-limit, data-licensing, privacy, terms, and optional policy-link notices. Final policy URLs, provider display rights, and legal approval remain required before production launch.
+
 ### 9.3 Launch Process
 
 - Staging acceptance test.
@@ -420,3 +424,5 @@ Current inspection: staging can emit JSON application logs, and the staging runb
 - Model approval.
 - Monitored release.
 - Rollback plan.
+
+Current inspection: `docs/PRODUCTION_READINESS.md`, `.env.production.example`, and `scripts/production-readiness-check.py` now define the launch acceptance, migration, initial import, model approval, monitoring, and rollback gates. Real production migration, historical import, and monitored release remain future platform execution.

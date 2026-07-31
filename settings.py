@@ -25,6 +25,7 @@ class Settings:
     app_env: str
     database_url: str
     backend_cors_origins: tuple[str, ...]
+    allowed_hosts: tuple[str, ...]
     horse_api_provider: str
     horse_api_base_url: str
     horse_api_key: str
@@ -42,6 +43,11 @@ class Settings:
     api_rate_limit_per_minute: int = 240
     data_freshness_max_age_hours: float = 24.0
     log_format: str = "plain"
+    max_request_body_bytes: int = 1_048_576
+    responsible_gambling_url: str = ""
+    privacy_policy_url: str = ""
+    terms_of_use_url: str = ""
+    data_license_reference: str = ""
 
     @property
     def is_deployed_environment(self) -> bool:
@@ -55,10 +61,25 @@ class Settings:
             errors.append("DATABASE_URL must use MySQL or another managed SQL database outside local development.")
         if self.is_deployed_environment and not self.backend_cors_origins:
             errors.append("BACKEND_CORS_ORIGINS must list the deployed frontend origins.")
+        if self.is_deployed_environment and not self.allowed_hosts:
+            errors.append("ALLOWED_HOSTS must list the deployed API hostnames.")
         if "*" in self.backend_cors_origins:
             errors.append("BACKEND_CORS_ORIGINS must not use '*' with credentials enabled.")
+        if "*" in self.allowed_hosts and self.is_deployed_environment:
+            errors.append("ALLOWED_HOSTS must not use '*' in staging or production.")
+        if self.is_deployed_environment:
+            insecure_origins = [origin for origin in self.backend_cors_origins if origin.startswith("http://")]
+            if insecure_origins:
+                errors.append("BACKEND_CORS_ORIGINS must use HTTPS in staging or production.")
         if self.is_deployed_environment and not self.api_auth_token:
             errors.append("API_AUTH_TOKEN must be set before enabling administrative API routes.")
+        if self.is_deployed_environment and self.api_auth_token:
+            weak_tokens = {"replace-with-a-long-random-token", "replace_me", "changeme", "change-me"}
+            token_value = self.api_auth_token.lower()
+            if len(self.api_auth_token) < 32 or token_value in weak_tokens or "replace" in token_value:
+                errors.append("API_AUTH_TOKEN must be a non-placeholder secret with at least 32 characters.")
+        if self.max_request_body_bytes < 1024:
+            errors.append("MAX_REQUEST_BODY_BYTES must be at least 1024.")
 
         if errors:
             raise RuntimeError("Invalid Horse Predictor configuration: " + " ".join(errors))
@@ -85,11 +106,15 @@ def resolve_database_url(database_url: str | Path | None = None) -> str:
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
+    app_env = os.getenv("APP_ENV", "development").lower()
+    deployed = app_env in {"staging", "production"}
     default_origins = ("http://localhost:5173", "http://127.0.0.1:5173")
+    default_allowed_hosts = ("localhost", "127.0.0.1", "testserver")
     return Settings(
-        app_env=os.getenv("APP_ENV", "development").lower(),
+        app_env=app_env,
         database_url=resolve_database_url(),
-        backend_cors_origins=_split_csv(os.getenv("BACKEND_CORS_ORIGINS", ""), default_origins),
+        backend_cors_origins=_split_csv(os.getenv("BACKEND_CORS_ORIGINS", ""), () if deployed else default_origins),
+        allowed_hosts=_split_csv(os.getenv("ALLOWED_HOSTS", ""), () if deployed else default_allowed_hosts),
         horse_api_provider=os.getenv("HORSE_API_PROVIDER", "sample"),
         horse_api_base_url=os.getenv("HORSE_API_BASE_URL", ""),
         horse_api_key=os.getenv("HORSE_API_KEY", ""),
@@ -106,5 +131,10 @@ def get_settings() -> Settings:
         api_auth_token=os.getenv("API_AUTH_TOKEN", ""),
         api_rate_limit_per_minute=int(os.getenv("API_RATE_LIMIT_PER_MINUTE", "240")),
         data_freshness_max_age_hours=float(os.getenv("DATA_FRESHNESS_MAX_AGE_HOURS", "24")),
-        log_format=os.getenv("LOG_FORMAT", "json" if os.getenv("APP_ENV", "development").lower() in {"staging", "production"} else "plain"),
+        log_format=os.getenv("LOG_FORMAT", "json" if deployed else "plain"),
+        max_request_body_bytes=int(os.getenv("MAX_REQUEST_BODY_BYTES", str(1_048_576))),
+        responsible_gambling_url=os.getenv("RESPONSIBLE_GAMBLING_URL", ""),
+        privacy_policy_url=os.getenv("PRIVACY_POLICY_URL", ""),
+        terms_of_use_url=os.getenv("TERMS_OF_USE_URL", ""),
+        data_license_reference=os.getenv("DATA_LICENSE_REFERENCE", ""),
     )

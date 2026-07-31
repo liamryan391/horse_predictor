@@ -163,3 +163,4 @@ See [docs/API.md](docs/API.md) for versioned backend endpoints, pagination, requ
 See [docs/FRONTEND.md](docs/FRONTEND.md) for the professional workspace, bet journal, theme, and frontend UX notes.
 See [docs/TESTING.md](docs/TESTING.md) for automated backend, data/model, frontend utility, and browser smoke checks.
 See [docs/CLOUD_STAGING.md](docs/CLOUD_STAGING.md) for staging deployment, migration, ingestion worker, and observability notes.
+See [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) for security, safeguards, launch acceptance, and rollback gates.

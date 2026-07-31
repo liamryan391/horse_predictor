@@ -66,6 +66,16 @@ class SummaryResponse(BaseModel):
     dataFreshness: DataFreshness
 
 
+class ProductSafeguardsResponse(BaseModel):
+    requestId: str
+    responsibleUseNotice: str
+    limitations: List[str]
+    dataLicensingNotice: str
+    privacyNotice: str
+    termsNotice: str
+    links: Dict[str, str | None]
+
+
 class RaceRunner(BaseModel):
     id: int | None = None
     race_date: str | None = None
