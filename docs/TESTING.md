@@ -37,7 +37,7 @@ Run the production build:
 npm.cmd run build --prefix frontend
 ```
 
-The frontend tests cover browser-local bet journal math, draft validation, and local-storage parsing. UI coverage still relies on Vite build plus browser smoke checks until a dedicated component/e2e runner is introduced.
+The frontend tests cover browser-local bet journal math, draft validation, local-storage parsing, race-centre grouping, race-centre runner sorting, and transparent signal labels. UI coverage still relies on Vite build plus browser smoke checks until a dedicated component/e2e runner is introduced.
 
 ## Browser Smoke
 

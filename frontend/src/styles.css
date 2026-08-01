@@ -357,6 +357,144 @@ select {
   gap: 14px;
 }
 
+.race-centre-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.race-list,
+.race-detail-panel {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.race-list-item {
+  display: grid;
+  gap: 4px;
+  min-height: 78px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 12px;
+  text-align: left;
+  box-shadow: var(--shadow);
+}
+
+.race-list-item.active {
+  border-left-color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 8%, var(--panel));
+}
+
+.race-list-item strong,
+.race-list-item span,
+.race-list-item small,
+.runner-focus-card strong,
+.signal-chip {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.race-list-item span,
+.race-list-item small {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.race-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 74px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+
+.compact-control {
+  width: min(220px, 100%);
+}
+
+.race-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.race-summary-metric,
+.runner-focus-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.race-summary-metric {
+  min-height: 74px;
+  padding: 12px;
+}
+
+.race-summary-metric span,
+.runner-focus-card > span {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.race-summary-metric strong {
+  display: block;
+  overflow-wrap: anywhere;
+  text-transform: capitalize;
+}
+
+.race-focus-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.runner-focus-card {
+  display: grid;
+  gap: 12px;
+  padding: 15px;
+}
+
+.runner-focus-card > strong {
+  font-size: 1.08rem;
+}
+
+.signal-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.signal-chip {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--brand) 30%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand) 8%, var(--panel));
+  color: var(--brand);
+  padding: 0 9px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.race-centre-table-wrap table {
+  min-width: 1040px;
+}
+
 .comparison-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -669,6 +807,7 @@ td {
   }
 
   .workspace-layout,
+  .race-centre-layout,
   .journal-form {
     grid-template-columns: 1fr;
   }
@@ -696,10 +835,20 @@ td {
   }
 
   .comparison-grid,
+  .race-focus-grid,
   .trend-grid,
   .info-grid,
   .safeguard-grid {
     grid-template-columns: 1fr;
+  }
+
+  .race-detail-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .compact-control {
+    width: 100%;
   }
 
   .nav-tabs button {

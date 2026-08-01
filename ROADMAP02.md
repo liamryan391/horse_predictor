@@ -100,16 +100,22 @@ Goal: turn the React workspace into a race-by-race operating centre.
 - Add runner comparison panels inside a race rather than only global top two.
 - Add mobile-friendly sorting by odds, rank, draw, speed rating, and model value.
 
+Current inspection: the React workspace now includes a Race Centre tab that groups predictions by race, keeps a selected race list/detail layout, shows race context, and supports runner sorting by model rank, value edge, market odds, draw, and speed rating.
+
 ### 14.2 Explanation Layer
 
 - Add per-runner explanation cards showing the strongest positive and negative factors.
 - Start with transparent model-feature contributions from the existing logistic model.
 - Add SHAP-backed explanations after artifact-backed serving is stable.
 
+Current inspection: selected-race runner cards and the runner table now show bounded deterministic signal labels from available model inputs: model rank, value edge, market favourite, speed/class context, draw, going, and race type. True coefficient/SHAP contribution views remain future work.
+
 ### 14.3 Responsible Product Copy
 
 - Keep uncertainty, holdout metrics, and data freshness visible on the race page.
 - Avoid any "guaranteed winner" or automatic-betting language.
+
+Current inspection: the Race Centre remains inside the existing workspace, so holdout, freshness, and data-quality metrics stay visible above the race view. The copy stays in decision-support language.
 
 ## Phase 15: Server-Side Bet Journal
 
@@ -190,6 +196,6 @@ Goal: turn the current manual validation list into repeatable automation.
 
 ## Recommended Next Phase
 
-Start with Phase 14: Race Centre UX.
+Start with Phase 15: Server-Side Bet Journal.
 
-Reason: Phase 13 now makes data coverage and provider depth visible enough to guard scoring. The next useful product jump is a race-by-race operating centre that shows runners, enrichment context, model rank, market odds, value edge, and uncertainty in one focused view.
+Reason: Phase 14 now gives the app a race-by-race operating centre. The next useful product step is moving the journal from browser-only storage into auditable server-side records that can link positions to prediction runs and settled results.

@@ -8,6 +8,7 @@ import {
   ClipboardList,
   Database,
   ExternalLink,
+  Flag,
   Moon,
   RefreshCw,
   Scale,
@@ -27,10 +28,18 @@ import {
   type Bet,
   type BetStatus
 } from "./journal";
+import {
+  buildRaceGroups,
+  raceKey,
+  runnerSignals,
+  sortRaceRunners,
+  type RaceCentreGroup,
+  type RaceCentreSort
+} from "./raceCentre";
 import "./styles.css";
 
 type Page = "workspace" | "journal" | "methodology" | "responsible-use" | "contact";
-type WorkspaceView = "rankings" | "race-card" | "evaluation" | "trends";
+type WorkspaceView = "rankings" | "race-centre" | "race-card" | "evaluation" | "trends";
 
 type DatabaseSummary = {
   environment: string;
@@ -251,6 +260,7 @@ const navigation: { page: Page; label: string; icon: LucideIcon }[] = [
 
 const workspaceViews: { view: WorkspaceView; label: string; icon: LucideIcon }[] = [
   { view: "rankings", label: "Rankings", icon: Trophy },
+  { view: "race-centre", label: "Race Centre", icon: Flag },
   { view: "race-card", label: "Race Card", icon: ClipboardList },
   { view: "evaluation", label: "Evaluation", icon: ShieldCheck },
   { view: "trends", label: "Trends", icon: Activity }
@@ -414,6 +424,8 @@ function Workspace() {
   const [track, setTrack] = useState(() => localStorageValue(TRACK_FILTER_KEY, "All tracks"));
   const [search, setSearch] = useState("");
   const [view, setView] = useState<WorkspaceView>("rankings");
+  const [selectedRaceId, setSelectedRaceId] = useState<string | null>(null);
+  const [raceSort, setRaceSort] = useState<RaceCentreSort>("rank");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -498,6 +510,18 @@ function Workspace() {
     return meetings.filter((item) => track === "All tracks" || item.track === track);
   }, [meetings, track]);
 
+  const raceGroups = useMemo(() => buildRaceGroups(filteredPredictions), [filteredPredictions]);
+
+  useEffect(() => {
+    if (raceGroups.length === 0) {
+      setSelectedRaceId(null);
+      return;
+    }
+    if (!selectedRaceId || !raceGroups.some((race) => race.id === selectedRaceId)) {
+      setSelectedRaceId(raceGroups[0].id);
+    }
+  }, [raceGroups, selectedRaceId]);
+
   const topRunner = filteredPredictions[0];
   const secondRunner = filteredPredictions[1];
   const qualityIssueCount = quality?.tables.reduce((total, table) => total + table.issueCount, 0);
@@ -577,8 +601,19 @@ function Workspace() {
 
         <section className="workspace-main">
           <MeetingStrip meetings={filteredMeetings} loading={loading} />
-          <RunnerComparison first={topRunner} second={secondRunner} />
+          {view !== "race-centre" && <RunnerComparison first={topRunner} second={secondRunner} />}
           {view === "rankings" && <PredictionTable rows={filteredPredictions} loading={loading} />}
+          {view === "race-centre" && (
+            <RaceCentrePanel
+              groups={raceGroups}
+              rows={filteredPredictions}
+              selectedRaceId={selectedRaceId}
+              onSelectRace={setSelectedRaceId}
+              sort={raceSort}
+              onSortChange={setRaceSort}
+              loading={loading}
+            />
+          )}
           {view === "race-card" && <RaceCardTable rows={filteredRaceCard} loading={loading} />}
           {view === "evaluation" && model?.evaluation && (
             <>
@@ -665,6 +700,229 @@ function RunnerComparison({ first, second }: { first?: Prediction; second?: Pred
         ))}
       </div>
     </section>
+  );
+}
+
+const raceSortOptions: { value: RaceCentreSort; label: string }[] = [
+  { value: "rank", label: "Model rank" },
+  { value: "value", label: "Value edge" },
+  { value: "market", label: "Market odds" },
+  { value: "draw", label: "Draw" },
+  { value: "speed", label: "Speed rating" }
+];
+
+function formatDistance(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) return "-";
+  return `${formatNumber(value, 0)}y`;
+}
+
+function RaceCentrePanel({
+  groups,
+  rows,
+  selectedRaceId,
+  onSelectRace,
+  sort,
+  onSortChange,
+  loading
+}: {
+  groups: RaceCentreGroup[];
+  rows: Prediction[];
+  selectedRaceId: string | null;
+  onSelectRace: (raceId: string) => void;
+  sort: RaceCentreSort;
+  onSortChange: (sort: RaceCentreSort) => void;
+  loading: boolean;
+}) {
+  const selectedRace = groups.find((race) => race.id === selectedRaceId) ?? groups[0];
+  const selectedRows = selectedRace ? sortRaceRunners(rows.filter((row) => raceKey(row) === selectedRace.id), sort) : [];
+  const focusRows = selectedRows.slice(0, 2);
+
+  if (loading) {
+    return (
+      <section className="race-centre-layout">
+        <div className="race-list">
+          {[0, 1, 2].map((item) => (
+            <div className="race-list-item skeleton" key={item} />
+          ))}
+        </div>
+        <div className="race-detail-panel">
+          <div className="race-detail-header skeleton" />
+          <div className="table-wrap">
+            <table>
+              <tbody>
+                {[0, 1, 2].map((item) => (
+                  <tr key={item}>
+                    <td colSpan={10}>
+                      <div className="table-skeleton">Loading race centre</div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="race-centre-layout">
+      <aside className="race-list" aria-label="Race list">
+        <div className="panel-title">
+          <Flag size={18} />
+          <span>Race Centre</span>
+        </div>
+        {groups.length === 0 && <EmptyState title="No races found" detail="Change the filters or refresh race data." />}
+        {groups.map((race) => (
+          <button
+            key={race.id}
+            className={`race-list-item ${race.id === selectedRace?.id ? "active" : ""}`}
+            onClick={() => onSelectRace(race.id)}
+          >
+            <strong>{race.track ?? "-"}</strong>
+            <span>
+              {formatDate(race.raceDate)} / {formatDistance(race.distance)} / {race.runners} runners
+            </span>
+            <small>{race.topRunner ? `${race.topRunner} ${formatPercent(race.topWinProbability)}` : "-"}</small>
+          </button>
+        ))}
+      </aside>
+
+      <div className="race-detail-panel">
+        {!selectedRace && <EmptyState title="No race selected" detail="Select a race from the list." />}
+        {selectedRace && (
+          <>
+            <div className="race-detail-header">
+              <div className="evaluation-header">
+                <Flag size={20} />
+                <div>
+                  <h2>{selectedRace.track ?? "Race"}</h2>
+                  <span>
+                    {formatDate(selectedRace.raceDate)} / {formatDistance(selectedRace.distance)} / {selectedRace.surface ?? "-"}
+                  </span>
+                </div>
+              </div>
+              <label className="compact-control">
+                Sort runners
+                <select value={sort} onChange={(event) => onSortChange(event.target.value as RaceCentreSort)}>
+                  {raceSortOptions.map((option) => (
+                    <option value={option.value} key={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="race-summary-grid">
+              <RaceSummaryMetric label="Runners" value={formatInteger(selectedRace.runners)} />
+              <RaceSummaryMetric label="Avg odds" value={formatNumber(selectedRace.averageOdds)} />
+              <RaceSummaryMetric label="Race type" value={selectedRace.raceType?.replace("_", " ") ?? "-"} />
+              <RaceSummaryMetric label="Going" value={selectedRace.goingCategory?.replace("_", " ") ?? selectedRace.weather ?? "-"} />
+              <RaceSummaryMetric label="Distance" value={selectedRace.distanceBucket ?? "-"} />
+              <RaceSummaryMetric label="Country" value={selectedRace.country ?? "-"} />
+            </div>
+
+            <div className="race-focus-grid">
+              {focusRows.map((runner) => (
+                <RunnerFocusCard runner={runner} key={`${runner.race_date}-${runner.track}-${runner.horse}`} />
+              ))}
+              {focusRows.length === 0 && <EmptyState title="No runners found" detail="Change the filters or refresh race data." />}
+            </div>
+
+            <div className="table-wrap race-centre-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Rank</th>
+                    <th>Runner</th>
+                    <th>Jockey</th>
+                    <th>Trainer</th>
+                    <th>Market</th>
+                    <th>Model</th>
+                    <th>Win</th>
+                    <th>Value</th>
+                    <th>Draw</th>
+                    <th>Signals</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedRows.map((row) => {
+                    const signals = runnerSignals(row);
+                    return (
+                      <tr key={`${row.race_date}-${row.track}-${row.horse}`}>
+                        <td>{row.suggested_rank ?? "-"}</td>
+                        <td>
+                          <strong>{row.horse ?? "-"}</strong>
+                          <span className="table-subtext">{row.owner ?? "-"}</span>
+                        </td>
+                        <td>{row.jockey ?? "-"}</td>
+                        <td>{row.trainer ?? "-"}</td>
+                        <td>{formatNumber(row.odds)}</td>
+                        <td>{formatNumber(row.model_odds)}</td>
+                        <td>{formatPercent(row.win_probability)}</td>
+                        <td className={(row.value_edge ?? 0) >= 0 ? "positive" : "negative"}>{formatPercent(row.value_edge)}</td>
+                        <td>{formatNumber(row.draw, 0)}</td>
+                        <td>
+                          <span className="table-subtext">{signals.slice(0, 2).join(" / ") || "-"}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {selectedRows.length === 0 && (
+                    <tr>
+                      <td colSpan={10}>No runners found for this race.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function RaceSummaryMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="race-summary-metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function RunnerFocusCard({ runner }: { runner: Prediction }) {
+  const signals = runnerSignals(runner);
+
+  return (
+    <article className="runner-focus-card">
+      <span>Rank {runner.suggested_rank ?? "-"}</span>
+      <strong>{runner.horse ?? "-"}</strong>
+      <dl>
+        <div>
+          <dt>Win probability</dt>
+          <dd>{formatPercent(runner.win_probability)}</dd>
+        </div>
+        <div>
+          <dt>Value edge</dt>
+          <dd className={(runner.value_edge ?? 0) >= 0 ? "positive" : "negative"}>{formatPercent(runner.value_edge)}</dd>
+        </div>
+        <div>
+          <dt>Market odds</dt>
+          <dd>{formatNumber(runner.odds)}</dd>
+        </div>
+      </dl>
+      <div className="signal-list">
+        {signals.map((signal) => (
+          <span className="signal-chip" key={signal}>
+            {signal}
+          </span>
+        ))}
+        {signals.length === 0 && <span className="signal-chip">No standout signal</span>}
+      </div>
+    </article>
   );
 }
 

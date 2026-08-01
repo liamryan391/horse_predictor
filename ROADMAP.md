@@ -296,7 +296,7 @@ Current inspection: the React app now opens to the operational workspace and inc
 - Confidence and data-quality indicators.
 - Horse, jockey, trainer, and owner details.
 
-Current inspection: the workspace now uses `/api/v1` for meetings, race-card rows, prediction rankings, runner comparison, trend tables, model evaluation, saved track filters, and data-quality indicators.
+Current inspection: the workspace now uses `/api/v1` for meetings, race-card rows, prediction rankings, race-centre detail, runner comparison, trend tables, model evaluation, saved track filters, and data-quality indicators.
 
 ### 6.3 Bet Journal
 
@@ -345,7 +345,7 @@ Current inspection: the Python suite now covers API contracts, provider fixture 
 - Responsive-layout checks.
 - End-to-end race-card workflow.
 
-Current inspection: the frontend now has Node test coverage for browser-local bet journal math, draft validation, and stored-row parsing. Vite build and live HTTP/browser smoke checks remain the UI gate until a dedicated component/e2e runner is introduced.
+Current inspection: the frontend now has Node test coverage for browser-local bet journal math, draft validation, stored-row parsing, race-centre grouping, race-centre runner sorting, and race-centre signal labels. Vite build and live HTTP/browser smoke checks remain the UI gate until a dedicated component/e2e runner is introduced.
 
 ### 7.3 Data And Model Tests
 
@@ -483,6 +483,6 @@ Current inspection: Phase 11 persists scoring snapshots. Phase 12 now links pred
 
 ## Continued Planning
 
-The next build plan continues in `ROADMAP02.md`. Phase 12: Artifact-Backed Model Serving and Phase 13: Data Enrichment And Provider Depth are implemented; the next planned stage is Phase 14: Race Centre UX.
+The next build plan continues in `ROADMAP02.md`. Phase 12: Artifact-Backed Model Serving, Phase 13: Data Enrichment And Provider Depth, and Phase 14: Race Centre UX are implemented; the next planned stage is Phase 15: Server-Side Bet Journal.
 
 Longer-term product, data, modelling, governance, and monitoring ideas are captured in `FUTURE_ROADMAP.md`.
