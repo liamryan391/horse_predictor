@@ -25,6 +25,11 @@ services:
       DATABASE_URL: mysql+pymysql://horse_user:horse_password@db:3306/horse_predictor
       BACKEND_CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
       HORSE_API_PROVIDER: sample
+      MONITORING_DRIFT_WARNING_THRESHOLD: 0.35
+      MONITORING_DRIFT_CRITICAL_THRESHOLD: 0.75
+      MONITORING_SLOW_REQUEST_MS: 1000
+      MONITORING_MAX_ERROR_RATE: 0.05
+      OTEL_ENABLED: false
     command: >
       sh -c "python -m alembic upgrade head
       && python data_pipeline.py --provider sample --no-csv

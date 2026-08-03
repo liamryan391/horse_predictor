@@ -26,6 +26,7 @@ The workspace combines:
 - model evaluation panel
 - model registry with artifact readiness and recent prediction-run tables
 - data-quality panel with enrichment coverage and provider freshness
+- monitoring panel with operator alerts, drift tables, and API traffic counters
 - trend tables
 - dark and light themes
 - loading skeletons and retryable API errors
@@ -56,6 +57,10 @@ Phase 15 moves the bet journal to the server-side `/api/v1/bet-journal` API whil
 - race date, placed odds, closing odds, settlement status, and notes
 
 Journal metrics are intentionally separate from model-evaluation metrics. Server rows can carry optional prediction-run, model-version, and normalized race-entry links for later audit views.
+
+## Monitoring
+
+Phase 16 adds a Monitoring tab inside the workspace. It displays the `/api/v1/monitoring` snapshot with operator metrics, active alerts, feature drift, prediction drift, and API traffic counters. Status pills reuse the model/data-quality tone system so warning and critical states remain visible without changing prediction copy into betting advice.
 
 ## Responsible Use
 

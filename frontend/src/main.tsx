@@ -40,7 +40,7 @@ import {
 import "./styles.css";
 
 type Page = "workspace" | "journal" | "methodology" | "responsible-use" | "contact";
-type WorkspaceView = "rankings" | "race-centre" | "race-card" | "evaluation" | "trends";
+type WorkspaceView = "rankings" | "race-centre" | "race-card" | "evaluation" | "monitoring" | "trends";
 
 type DatabaseSummary = {
   environment: string;
@@ -241,6 +241,80 @@ type DataQuality = {
   providerFreshness: ProviderFreshness[];
 };
 
+type MonitoringMetric = {
+  name: string;
+  label: string;
+  value: number | string | null;
+  unit: string | null;
+  status: string;
+  description: string | null;
+};
+
+type MonitoringAlert = {
+  severity: string;
+  category: string;
+  code: string;
+  message: string;
+  value: number | string | null;
+  threshold: number | string | null;
+};
+
+type DriftMetricRow = {
+  field: string;
+  kind: string;
+  status: string;
+  score: number | null;
+  referenceCount: number;
+  currentCount: number;
+  referenceMean: number | null;
+  currentMean: number | null;
+  referenceMissingRate: number | null;
+  currentMissingRate: number | null;
+  referenceShare: number | null;
+  currentShare: number | null;
+  topReferenceCategory: string | null;
+  topCurrentCategory: string | null;
+  maxShareDelta: number | null;
+  newCategories: string[];
+  detail: string | null;
+};
+
+type DriftReport = {
+  status: string;
+  generatedAt: string;
+  referenceRows: number;
+  currentRows: number;
+  thresholds: Record<string, number>;
+  featureDrift: DriftMetricRow[];
+  predictionDrift: DriftMetricRow[];
+};
+
+type ApiMetrics = {
+  totalRequests: number;
+  errorRequests: number;
+  slowRequests: number;
+  errorRate: number;
+  averageLatencyMs: number;
+  statusCounts: Record<string, number>;
+  topPaths: { path: string; requests: number }[];
+  recent: { method: string; path: string; statusCode: number; elapsedMs: number; recordedAt: string }[];
+  lastErrorAt: string | null;
+  lastSlowAt: string | null;
+};
+
+type Monitoring = {
+  requestId: string;
+  status: string;
+  generatedAt: string;
+  dataFreshness: DataFreshness;
+  providerFreshness: ProviderFreshness[];
+  apiMetrics: ApiMetrics;
+  metrics: MonitoringMetric[];
+  alerts: MonitoringAlert[];
+  drift: DriftReport;
+  model: Record<string, string | number | boolean | null>;
+};
+
 type BetJournalListResponse = {
   requestId: string;
   bets: Bet[];
@@ -281,7 +355,8 @@ const workspaceViews: { view: WorkspaceView; label: string; icon: LucideIcon }[]
   { view: "race-centre", label: "Race Centre", icon: Flag },
   { view: "race-card", label: "Race Card", icon: ClipboardList },
   { view: "evaluation", label: "Evaluation", icon: ShieldCheck },
-  { view: "trends", label: "Trends", icon: Activity }
+  { view: "monitoring", label: "Monitoring", icon: Activity },
+  { view: "trends", label: "Trends", icon: BarChart3 }
 ];
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
@@ -331,11 +406,36 @@ function formatDate(value: string | null | undefined) {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString();
 }
 
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+}
+
 function formatFreshness(value: DataFreshness | null | undefined) {
   if (!value) return "-";
   if (value.status === "fresh" && value.ageHours !== null) return `Fresh (${formatNumber(value.ageHours, 1)}h)`;
   if (value.status === "stale" && value.ageHours !== null) return `Stale (${formatNumber(value.ageHours, 1)}h)`;
   return value.status;
+}
+
+function statusTone(status: string | null | undefined) {
+  if (!status) return "superseded";
+  if (["ok", "fresh", "success", "approved"].includes(status)) return "approved";
+  if (["warning", "stale", "candidate", "degraded", "unknown"].includes(status)) return "candidate";
+  if (["critical", "blocked", "failed", "missing", "error"].includes(status)) return "critical";
+  return "superseded";
+}
+
+function formatMetricValue(metric: MonitoringMetric) {
+  if (typeof metric.value === "number") {
+    if (metric.unit === "percent") return formatPercent(metric.value);
+    if (metric.unit === "ms") return `${formatNumber(metric.value, 1)}ms`;
+    if (metric.unit === "hours") return `${formatNumber(metric.value, 1)}h`;
+    if (metric.unit === "count") return formatInteger(metric.value);
+    return formatNumber(metric.value, 2);
+  }
+  return metric.value === null || metric.value === undefined ? "-" : String(metric.value);
 }
 
 function localStorageValue(key: string, fallback: string) {
@@ -459,6 +559,7 @@ function Workspace() {
   const [predictionRuns, setPredictionRuns] = useState<PredictionRun[]>([]);
   const [trends, setTrends] = useState<Trends | null>(null);
   const [quality, setQuality] = useState<DataQuality | null>(null);
+  const [monitoring, setMonitoring] = useState<Monitoring | null>(null);
   const [track, setTrack] = useState(() => localStorageValue(TRACK_FILTER_KEY, "All tracks"));
   const [search, setSearch] = useState("");
   const [view, setView] = useState<WorkspaceView>("rankings");
@@ -480,7 +581,8 @@ function Workspace() {
         trendResult,
         meetingResult,
         raceCardResult,
-        qualityResult
+        qualityResult,
+        monitoringResult
       ] =
         await Promise.all([
           apiGet<Summary>("/summary"),
@@ -491,7 +593,8 @@ function Workspace() {
           apiGet<Trends>("/trends"),
           apiGet<{ meetings: Meeting[]; page: PageMeta }>("/meetings?limit=200"),
           apiGet<{ raceCard: RaceRunner[]; page: PageMeta }>("/race-card?limit=500"),
-          apiGet<DataQuality>("/data-quality")
+          apiGet<DataQuality>("/data-quality"),
+          apiGet<Monitoring>("/monitoring")
         ]);
       setSummary(summaryResult);
       setPredictions(predictionResult.predictions);
@@ -502,6 +605,7 @@ function Workspace() {
       setMeetings(meetingResult.meetings);
       setRaceCard(raceCardResult.raceCard);
       setQuality(qualityResult);
+      setMonitoring(monitoringResult);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load racing data.");
     } finally {
@@ -564,6 +668,7 @@ function Workspace() {
   const secondRunner = filteredPredictions[1];
   const qualityIssueCount = quality?.tables.reduce((total, table) => total + table.issueCount, 0);
   const dataQuality = qualityIssueCount === undefined ? "Loading" : qualityIssueCount === 0 ? "Clear" : `${qualityIssueCount} issues`;
+  const monitoringSummary = monitoring ? `${monitoring.status} / ${monitoring.alerts.length} alerts` : "Loading";
 
   return (
     <section className="workspace">
@@ -596,6 +701,7 @@ function Workspace() {
         <Metric label="Meetings" value={formatInteger(filteredMeetings.length)} />
         <Metric label="Top-pick holdout" value={formatPercent(model?.evaluation.metrics.top_pick_win_rate)} />
         <Metric label="Data quality" value={dataQuality} />
+        <Metric label="Monitoring" value={monitoringSummary} />
         <Metric label="Freshness" value={formatFreshness(summary?.dataFreshness)} />
         <Metric label="Last refresh" value={formatDate(summary?.lastRefresh)} />
       </div>
@@ -661,6 +767,7 @@ function Workspace() {
               <DataQualityPanel quality={quality} />
             </>
           )}
+          {view === "monitoring" && <MonitoringPanel monitoring={monitoring} />}
           {view === "trends" && <TrendGrid trends={trends} />}
         </section>
       </div>
@@ -1197,6 +1304,228 @@ function DataQualityPanel({ quality }: { quality: DataQuality | null }) {
           </tbody>
         </table>
       </div>
+    </section>
+  );
+}
+
+function driftSortValue(row: DriftMetricRow) {
+  const severityRank: Record<string, number> = { critical: 0, blocked: 1, warning: 2, ok: 3 };
+  return severityRank[row.status] ?? 4;
+}
+
+function driftReferenceValue(row: DriftMetricRow) {
+  if (row.kind === "categorical") {
+    return `${row.topReferenceCategory ?? "-"} (${formatPercent(row.referenceShare)})`;
+  }
+  return formatNumber(row.referenceMean, 3);
+}
+
+function driftCurrentValue(row: DriftMetricRow) {
+  if (row.kind === "categorical") {
+    return `${row.topCurrentCategory ?? "-"} (${formatPercent(row.currentShare)})`;
+  }
+  return formatNumber(row.currentMean, 3);
+}
+
+function DriftTable({ title, rows }: { title: string; rows: DriftMetricRow[] }) {
+  const sortedRows = [...rows].sort((a, b) => driftSortValue(a) - driftSortValue(b) || (b.score ?? 0) - (a.score ?? 0));
+
+  return (
+    <section className="registry-panel">
+      <div className="evaluation-header">
+        <Database size={20} />
+        <div>
+          <h2>{title}</h2>
+          <span>{formatInteger(rows.length)} checks against the historical baseline.</span>
+        </div>
+      </div>
+      <div className="table-wrap registry-table-wrap drift-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Field</th>
+              <th>Status</th>
+              <th>Score</th>
+              <th>Reference</th>
+              <th>Current</th>
+              <th>Rows</th>
+              <th>Detail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedRows.map((row) => (
+              <tr key={`${title}-${row.kind}-${row.field}`}>
+                <td>
+                  <strong>{row.field}</strong>
+                  <span className="table-subtext">{row.kind}</span>
+                </td>
+                <td>
+                  <span className={`status-pill ${statusTone(row.status)}`}>{row.status}</span>
+                </td>
+                <td>{formatPercent(row.score)}</td>
+                <td>{driftReferenceValue(row)}</td>
+                <td>{driftCurrentValue(row)}</td>
+                <td>
+                  {formatInteger(row.referenceCount)} / {formatInteger(row.currentCount)}
+                </td>
+                <td>
+                  <span className="table-subtext drift-detail">{row.detail ?? "-"}</span>
+                </td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={7}>No drift checks are available.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function MonitoringPanel({ monitoring }: { monitoring: Monitoring | null }) {
+  if (!monitoring) {
+    return (
+      <section className="registry-panel">
+        <EmptyState title="Monitoring is loading" detail="Refresh the workspace if the snapshot does not appear." />
+      </section>
+    );
+  }
+
+  const statusCounts = Object.entries(monitoring.apiMetrics.statusCounts);
+
+  return (
+    <section className="monitoring-panel">
+      <div className="evaluation-header">
+        <Activity size={20} />
+        <div>
+          <h2>Monitoring</h2>
+          <span>
+            Generated {formatDateTime(monitoring.generatedAt)} / serving {String(monitoring.model.servingMode ?? "-")} / tracing {String(monitoring.model.tracingStatus ?? "-")}
+          </span>
+        </div>
+        <span className={`status-pill ${statusTone(monitoring.status)}`}>{monitoring.status}</span>
+      </div>
+
+      <div className="evaluation-grid monitoring-metrics">
+        {monitoring.metrics.map((metric) => (
+          <div className="metric-tile monitoring-metric" key={metric.name}>
+            <span>{metric.label}</span>
+            <strong>{formatMetricValue(metric)}</strong>
+            <small>{metric.description ?? metric.unit ?? "-"}</small>
+            <span className={`status-pill ${statusTone(metric.status)}`}>{metric.status}</span>
+          </div>
+        ))}
+      </div>
+
+      <section className="registry-panel">
+        <div className="evaluation-header">
+          <ShieldCheck size={20} />
+          <div>
+            <h2>Operator Alerts</h2>
+            <span>{formatInteger(monitoring.alerts.length)} active signals.</span>
+          </div>
+        </div>
+        <div className="table-wrap registry-table-wrap alert-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Severity</th>
+                <th>Category</th>
+                <th>Signal</th>
+                <th>Value</th>
+                <th>Threshold</th>
+              </tr>
+            </thead>
+            <tbody>
+              {monitoring.alerts.map((alert) => (
+                <tr key={`${alert.category}-${alert.code}`}>
+                  <td>
+                    <span className={`status-pill ${statusTone(alert.severity)}`}>{alert.severity}</span>
+                  </td>
+                  <td>{alert.category}</td>
+                  <td>
+                    <strong>{alert.message}</strong>
+                    <span className="table-subtext">{alert.code}</span>
+                  </td>
+                  <td>{typeof alert.value === "number" ? formatNumber(alert.value, 3) : alert.value ?? "-"}</td>
+                  <td>{typeof alert.threshold === "number" ? formatNumber(alert.threshold, 3) : alert.threshold ?? "-"}</td>
+                </tr>
+              ))}
+              {monitoring.alerts.length === 0 && (
+                <tr>
+                  <td colSpan={5}>No monitoring alerts are active.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <DriftTable title="Feature Drift" rows={monitoring.drift.featureDrift} />
+      <DriftTable title="Prediction Drift" rows={monitoring.drift.predictionDrift} />
+
+      <section className="registry-panel">
+        <div className="evaluation-header">
+          <Database size={20} />
+          <div>
+            <h2>API Traffic</h2>
+            <span>
+              {formatInteger(monitoring.apiMetrics.totalRequests)} requests / {formatPercent(monitoring.apiMetrics.errorRate)} error rate / {formatNumber(monitoring.apiMetrics.averageLatencyMs, 1)}ms average.
+            </span>
+          </div>
+        </div>
+        <div className="monitoring-api-grid">
+          <div className="table-wrap compact-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th>Requests</th>
+                </tr>
+              </thead>
+              <tbody>
+                {statusCounts.map(([status, requests]) => (
+                  <tr key={status}>
+                    <td>{status}</td>
+                    <td>{formatInteger(requests)}</td>
+                  </tr>
+                ))}
+                {statusCounts.length === 0 && (
+                  <tr>
+                    <td colSpan={2}>No API requests recorded yet.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="table-wrap compact-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Path</th>
+                  <th>Requests</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monitoring.apiMetrics.topPaths.map((row) => (
+                  <tr key={row.path}>
+                    <td>{row.path}</td>
+                    <td>{formatInteger(row.requests)}</td>
+                  </tr>
+                ))}
+                {monitoring.apiMetrics.topPaths.length === 0 && (
+                  <tr>
+                    <td colSpan={2}>No paths recorded yet.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
     </section>
   );
 }

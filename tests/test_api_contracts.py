@@ -10,7 +10,7 @@ _TEMP_DIR = tempfile.TemporaryDirectory()
 os.environ["DATABASE_URL"] = f"sqlite:///{(Path(_TEMP_DIR.name) / 'api_contracts.db').as_posix()}"
 os.environ["MODEL_ARTIFACT_DIR"] = str(Path(_TEMP_DIR.name) / "artifacts")
 
-from api import SETTINGS, approve_model, bet_journal, create_bet, delete_bet, capture_model_evaluation, capture_prediction_run, data_quality as api_data_quality, entity_profile, health, meetings, model_registry, model_status, normalize_request_id, prediction_run_detail, prediction_runs, predictions, race_card, ready, safeguards, summary, update_bet
+from api import SETTINGS, approve_model, bet_journal, create_bet, delete_bet, capture_model_evaluation, capture_prediction_run, data_quality as api_data_quality, entity_profile, health, meetings, model_registry, model_status, monitoring as api_monitoring, normalize_request_id, prediction_run_detail, prediction_runs, predictions, race_card, ready, safeguards, summary, update_bet
 from api_contracts import (
     BetJournalCreateRequest,
     BetJournalDeleteResponse,
@@ -24,6 +24,7 @@ from api_contracts import (
     PredictionRunResponse,
     PredictionRunsResponse,
     PredictionsResponse,
+    MonitoringResponse,
     ProductSafeguardsResponse,
     RaceCardResponse,
     ReadinessResponse,
@@ -63,6 +64,16 @@ class APIContractTests(unittest.TestCase):
         self.assertGreaterEqual(len(tables["historical"].coverage), 4)
         self.assertTrue(any(row.field == "country" and row.coverage == 1.0 for row in tables["historical"].coverage))
         self.assertTrue(response.providerFreshness)
+
+    def test_monitoring_endpoint_exposes_drift_and_alert_contract(self) -> None:
+        response = MonitoringResponse(**api_monitoring())
+
+        self.assertIn(response.status, {"ok", "warning", "blocked", "critical"})
+        self.assertGreaterEqual(len(response.metrics), 4)
+        self.assertGreaterEqual(len(response.drift.featureDrift), 1)
+        self.assertGreaterEqual(len(response.drift.predictionDrift), 1)
+        self.assertIn("tracingStatus", response.model)
+        self.assertGreaterEqual(response.apiMetrics.totalRequests, 0)
 
     def test_safeguards_endpoint_exposes_launch_policy_contract(self) -> None:
         response = ProductSafeguardsResponse(**safeguards())

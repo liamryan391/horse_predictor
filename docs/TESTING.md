@@ -23,6 +23,7 @@ The suite covers:
 - enrichment coverage and course/weather URL checks
 - model calibration and market-baseline checks
 - model artifact save/load determinism and artifact-backed API serving
+- monitoring drift helpers, API request counters, and the `/api/v1/monitoring` contract
 
 ## Frontend
 
@@ -59,6 +60,8 @@ Add `--require-approved-model` for staging or production once a model version ha
 Add `--require-approved-artifact` when acceptance should also prove that the approved model has artifact integrity metadata.
 Add `--require-prediction-run` when acceptance should also prove that at least one scored race-card snapshot has been persisted.
 Add `--require-enriched-data` when acceptance should also prove that core enrichment fields meet the configured coverage threshold.
+Add `--require-monitoring` when acceptance should also prove that monitoring metrics and drift checks are populated.
+Add `--require-no-critical-alerts` when acceptance should fail on critical or blocked monitoring alerts.
 
 Run the provider-depth check with live weather-provider access:
 

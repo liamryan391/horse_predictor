@@ -322,6 +322,80 @@ class DataQualityResponse(BaseModel):
     providerFreshness: List[ProviderFreshnessRow]
 
 
+class MonitoringMetric(BaseModel):
+    name: str
+    label: str
+    value: float | int | str | None = None
+    unit: str | None = None
+    status: str
+    description: str | None = None
+
+
+class MonitoringAlert(BaseModel):
+    severity: str
+    category: str
+    code: str
+    message: str
+    value: float | int | str | None = None
+    threshold: float | int | str | None = None
+
+
+class ApiMetricsResponse(BaseModel):
+    totalRequests: int
+    errorRequests: int
+    slowRequests: int
+    errorRate: float
+    averageLatencyMs: float
+    statusCounts: Dict[str, int]
+    topPaths: List[Dict[str, Any]]
+    recent: List[Dict[str, Any]]
+    lastErrorAt: str | None = None
+    lastSlowAt: str | None = None
+
+
+class DriftMetricRow(BaseModel):
+    field: str
+    kind: str
+    status: str
+    score: float | None = None
+    referenceCount: int
+    currentCount: int
+    referenceMean: float | None = None
+    currentMean: float | None = None
+    referenceMissingRate: float | None = None
+    currentMissingRate: float | None = None
+    referenceShare: float | None = None
+    currentShare: float | None = None
+    topReferenceCategory: str | None = None
+    topCurrentCategory: str | None = None
+    maxShareDelta: float | None = None
+    newCategories: List[str] = Field(default_factory=list)
+    detail: str | None = None
+
+
+class DriftReport(BaseModel):
+    status: str
+    generatedAt: str
+    referenceRows: int
+    currentRows: int
+    thresholds: Dict[str, float]
+    featureDrift: List[DriftMetricRow]
+    predictionDrift: List[DriftMetricRow]
+
+
+class MonitoringResponse(BaseModel):
+    requestId: str
+    status: str
+    generatedAt: str
+    dataFreshness: DataFreshness
+    providerFreshness: List[ProviderFreshnessRow]
+    apiMetrics: ApiMetricsResponse
+    metrics: List[MonitoringMetric]
+    alerts: List[MonitoringAlert]
+    drift: DriftReport
+    model: Dict[str, Any]
+
+
 class ModelEvaluation(BaseModel):
     status: str
     message: str | None = None

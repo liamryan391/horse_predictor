@@ -154,15 +154,21 @@ Goal: know when data, predictions, or model quality are changing.
 - Add prediction distribution drift checks.
 - Add alerts when drift affects core fields such as odds, field size, ratings, going, or market-implied probability.
 
+Current inspection: `/api/v1/monitoring` now compares historical reference features with current race-card features, and compares reference/current prediction distributions when model serving is available. Drift rows cover numeric and categorical fields, use configurable warning/critical thresholds, and produce operator alerts for warning or critical drift.
+
 ### 16.2 Observability
 
 - Add OpenTelemetry FastAPI instrumentation.
 - Emit request traces, slow endpoint spans, ingestion job spans, and model-scoring spans.
 - Add dashboard-ready metrics for ingestion freshness, prediction-run volume, API errors, and model evaluation status.
 
+Current inspection: FastAPI request middleware now records in-process request counts, status buckets, top paths, average latency, slow-request counts, and recent request samples. Optional OpenTelemetry FastAPI instrumentation is available through `OTEL_ENABLED`; if the package is unavailable the API logs the condition and continues. JSON logging includes request status and slow-request flags.
+
 ### 16.3 Operator Alerts
 
 - Add alert routes or webhook hooks for failed ingestion, stale data, missing approved model, and failed prediction-run capture.
+
+Current inspection: `/api/v1/monitoring` returns active alerts for drift, stale or missing freshness, provider failures, empty race tables, model-serving blocks, missing approved model evidence, missing prediction-run snapshots, high API error rate, and slow requests. The React workspace now includes a Monitoring tab with alert, drift, and API traffic tables, and `scripts/production-readiness-check.py --require-monitoring --require-no-critical-alerts` can enforce the monitoring gate.
 
 ## Phase 17: Admin Console And Governance
 
@@ -202,6 +208,6 @@ Goal: turn the current manual validation list into repeatable automation.
 
 ## Recommended Next Phase
 
-Start with Phase 16: Monitoring And Drift.
+Start with Phase 17: Admin Console And Governance.
 
-Reason: Phase 15 now gives the app auditable server-side journal records. The next platform risk is knowing when provider freshness, model inputs, prediction distributions, or API behavior drift away from the conditions the approved model was evaluated under.
+Reason: Phase 16 now gives operators visibility into freshness, drift, API behavior, and governance gaps. The next platform risk is controlled access: admin actions, model approvals, ingestion controls, and server-side journal records need authenticated users, roles, and audit history before broader production use.

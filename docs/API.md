@@ -16,6 +16,7 @@ Core endpoints:
 - `GET /api/v1/ready`
 - `GET /api/v1/summary`
 - `GET /api/v1/data-quality`
+- `GET /api/v1/monitoring`
 - `GET /api/v1/safeguards`
 - `GET /api/v1/meetings`
 - `GET /api/v1/races`
@@ -135,6 +136,18 @@ The React Responsible Use page reads this endpoint and falls back to the built-i
 - `providerFreshness` reports the latest ingestion status per provider/table from `api_ingestion_runs`.
 
 The React Evaluation view displays this response beside model registry and prediction-run snapshots.
+
+## Monitoring And Drift
+
+`GET /api/v1/monitoring` returns dashboard-ready operator metrics, drift checks, and alerts:
+
+- `metrics` summarizes freshness, request behavior, drift-check volume, and alert count.
+- `alerts` reports warning and critical signals for drift, stale data, provider failures, missing governance evidence, model-serving blocks, API errors, and slow requests.
+- `drift.featureDrift` compares current race-card features against the historical reference set.
+- `drift.predictionDrift` compares current prediction distributions against reference predictions when serving is available.
+- `apiMetrics` exposes in-process request counts, status buckets, top paths, average latency, and recent request samples.
+
+See [MONITORING.md](MONITORING.md) for thresholds and readiness gates.
 
 ## Model Registry
 

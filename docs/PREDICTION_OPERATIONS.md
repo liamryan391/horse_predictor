@@ -73,5 +73,5 @@ Production acceptance can require at least one persisted prediction run:
 
 ## Current Limits
 
-- Scheduled scoring jobs and drift monitoring remain future work.
+- Scheduled scoring jobs remain future work; drift monitoring is available through `/api/v1/monitoring`.
 - Prediction-run cleanup or archival policy remains future work once production volume is known.

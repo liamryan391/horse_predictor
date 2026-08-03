@@ -30,6 +30,11 @@ Recommended staging values:
 - `MAX_REQUEST_BODY_BYTES=1048576`
 - `DATA_FRESHNESS_MAX_AGE_HOURS=24`
 - `API_RATE_LIMIT_PER_MINUTE=240`
+- `MONITORING_DRIFT_WARNING_THRESHOLD=0.35`
+- `MONITORING_DRIFT_CRITICAL_THRESHOLD=0.75`
+- `MONITORING_SLOW_REQUEST_MS=1000`
+- `MONITORING_MAX_ERROR_RATE=0.05`
+- `OTEL_ENABLED=false` until an OpenTelemetry collector/export path is configured
 - `RESPONSIBLE_GAMBLING_URL`, `PRIVACY_POLICY_URL`, and `TERMS_OF_USE_URL` before any public launch review
 
 ## Release Flow
@@ -78,13 +83,14 @@ Monitor:
 - `/api/v1/health`
 - `/api/v1/ready`
 - `/api/v1/ingestion-status`
+- `/api/v1/monitoring`
 - `/api/v1/safeguards`
 - `/api/v1/model/registry`
 - `/api/v1/model/evaluation`
 - `/api/v1/prediction-runs`
 - frontend freshness indicator from `/api/v1/summary`
 
-The summary endpoint returns `dataFreshness.status`, `ageHours`, and `maxAgeHours`. The workspace shows this as the Freshness metric.
+The summary endpoint returns `dataFreshness.status`, `ageHours`, and `maxAgeHours`. The monitoring endpoint returns operator metrics, alerts, drift checks, and API request counters. The workspace shows both as Freshness and Monitoring signals.
 
 ## Acceptance Checklist
 
@@ -99,8 +105,8 @@ The summary endpoint returns `dataFreshness.status`, `ageHours`, and `maxAgeHour
 - `/api/v1/ready` returns `ok` after artifact-backed model approval.
 - A prediction snapshot can be recorded through `POST /api/v1/admin/prediction-runs?require_approved_model=true` after model approval.
 - `MODEL_ARTIFACT_DIR` should point at durable storage; the staging compose file mounts `/app/model_artifacts` as a named volume.
-- `python scripts/production-readiness-check.py --base-url <api-url> --require-approved-artifact` passes.
+- `python scripts/production-readiness-check.py --base-url <api-url> --require-approved-artifact --require-monitoring` passes.
 - Ingestion worker records a successful run.
-- Frontend can load meetings, race cards, predictions, model evaluation, and trends.
+- Frontend can load meetings, race cards, predictions, model evaluation, monitoring, and trends.
 - HTTPS domain and CORS origins match exactly.
 - Future visual gate: make the `agent-browser` CLI available on PATH, then run the browser smoke commands from `docs/TESTING.md`.

@@ -50,6 +50,12 @@ class Settings:
     data_freshness_max_age_hours: float = 24.0
     log_format: str = "plain"
     max_request_body_bytes: int = 1_048_576
+    monitoring_drift_warning_threshold: float = 0.35
+    monitoring_drift_critical_threshold: float = 0.75
+    monitoring_slow_request_ms: float = 1000.0
+    monitoring_max_error_rate: float = 0.05
+    otel_enabled: bool = False
+    otel_service_name: str = "horse-predictor-api"
     responsible_gambling_url: str = ""
     privacy_policy_url: str = ""
     terms_of_use_url: str = ""
@@ -88,6 +94,12 @@ class Settings:
                 errors.append("API_AUTH_TOKEN must be a non-placeholder secret with at least 32 characters.")
         if self.max_request_body_bytes < 1024:
             errors.append("MAX_REQUEST_BODY_BYTES must be at least 1024.")
+        if not 0 < self.monitoring_drift_warning_threshold <= self.monitoring_drift_critical_threshold <= 1:
+            errors.append("Monitoring drift thresholds must satisfy 0 < warning <= critical <= 1.")
+        if self.monitoring_slow_request_ms <= 0:
+            errors.append("MONITORING_SLOW_REQUEST_MS must be greater than 0.")
+        if not 0 <= self.monitoring_max_error_rate <= 1:
+            errors.append("MONITORING_MAX_ERROR_RATE must be between 0 and 1.")
         if self.require_approved_model_artifact and not self.model_artifact_dir:
             errors.append("MODEL_ARTIFACT_DIR must be configured when approved model artifacts are required.")
 
@@ -143,6 +155,12 @@ def get_settings() -> Settings:
         data_freshness_max_age_hours=float(os.getenv("DATA_FRESHNESS_MAX_AGE_HOURS", "24")),
         log_format=os.getenv("LOG_FORMAT", "json" if deployed else "plain"),
         max_request_body_bytes=int(os.getenv("MAX_REQUEST_BODY_BYTES", str(1_048_576))),
+        monitoring_drift_warning_threshold=float(os.getenv("MONITORING_DRIFT_WARNING_THRESHOLD", "0.35")),
+        monitoring_drift_critical_threshold=float(os.getenv("MONITORING_DRIFT_CRITICAL_THRESHOLD", "0.75")),
+        monitoring_slow_request_ms=float(os.getenv("MONITORING_SLOW_REQUEST_MS", "1000")),
+        monitoring_max_error_rate=float(os.getenv("MONITORING_MAX_ERROR_RATE", "0.05")),
+        otel_enabled=_bool_env(os.getenv("OTEL_ENABLED"), False),
+        otel_service_name=os.getenv("OTEL_SERVICE_NAME", "horse-predictor-api"),
         responsible_gambling_url=os.getenv("RESPONSIBLE_GAMBLING_URL", ""),
         privacy_policy_url=os.getenv("PRIVACY_POLICY_URL", ""),
         terms_of_use_url=os.getenv("TERMS_OF_USE_URL", ""),

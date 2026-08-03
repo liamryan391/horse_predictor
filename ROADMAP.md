@@ -483,6 +483,6 @@ Current inspection: Phase 11 persists scoring snapshots. Phase 12 now links pred
 
 ## Continued Planning
 
-The next build plan continues in `ROADMAP02.md`. Phase 12: Artifact-Backed Model Serving, Phase 13: Data Enrichment And Provider Depth, Phase 14: Race Centre UX, and Phase 15: Server-Side Bet Journal are implemented; the next planned stage is Phase 16: Monitoring And Drift.
+The next build plan continues in `ROADMAP02.md`. Phase 12: Artifact-Backed Model Serving, Phase 13: Data Enrichment And Provider Depth, Phase 14: Race Centre UX, Phase 15: Server-Side Bet Journal, and Phase 16: Monitoring And Drift are implemented; the next planned stage is Phase 17: Admin Console And Governance.
 
 Longer-term product, data, modelling, governance, and monitoring ideas are captured in `FUTURE_ROADMAP.md`.

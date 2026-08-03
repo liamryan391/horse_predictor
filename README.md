@@ -6,8 +6,9 @@ Professional horse racing intelligence platform powered by API ingestion, MySQL-
 
 - `data_pipeline.py`: pulls sample or API data and writes SQL tables.
 - `racing_storage.py`: SQLAlchemy storage layer for MySQL in production and SQLite for local development.
-- `api.py`: FastAPI service for predictions, prediction-run history, bet journal records, trends, race cards, data quality, and ingestion health.
-- `frontend/`: React + TypeScript racing workspace with rankings, race centre, race cards, evaluation, provider freshness, and bet journal pages.
+- `api.py`: FastAPI service for predictions, prediction-run history, bet journal records, trends, race cards, data quality, monitoring, and ingestion health.
+- `monitoring.py`: drift checks and in-process API metrics used by the monitoring endpoint.
+- `frontend/`: React + TypeScript racing workspace with rankings, race centre, race cards, evaluation, monitoring, provider freshness, and bet journal pages.
 - `horse_racing_app.py`: legacy Streamlit dashboard kept for quick internal checks.
 
 ## Database choice
@@ -167,6 +168,7 @@ See [docs/PROVIDER_DEPTH.md](docs/PROVIDER_DEPTH.md) for course metadata, weathe
 See [docs/MODELING.md](docs/MODELING.md) for leakage checks, holdout evaluation, and backtesting metric notes.
 See [docs/API.md](docs/API.md) for versioned backend endpoints, pagination, request IDs, and API security notes.
 See [docs/FRONTEND.md](docs/FRONTEND.md) for the professional workspace, bet journal, theme, and frontend UX notes.
+See [docs/MONITORING.md](docs/MONITORING.md) for drift reports, operator alerts, API metrics, and OpenTelemetry configuration.
 See [docs/TESTING.md](docs/TESTING.md) for automated backend, data/model, frontend utility, and browser smoke checks.
 See [docs/CLOUD_STAGING.md](docs/CLOUD_STAGING.md) for staging deployment, migration, ingestion worker, and observability notes.
 See [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) for security, safeguards, launch acceptance, and rollback gates.

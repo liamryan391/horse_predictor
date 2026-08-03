@@ -22,12 +22,13 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from observability import configure_logging
+from observability import configure_logging, configure_tracing
 from api_contracts import (
     BetJournalCreateRequest,
     BetJournalDeleteResponse,
     BetJournalEntryResponse,
     BetJournalListResponse,
+    BetJournalUpdateRequest,
     DataQualityResponse,
     EntityProfileResponse,
     ErrorResponse,
@@ -38,6 +39,7 @@ from api_contracts import (
     ModelRegistryResponse,
     ModelSnapshotResponse,
     ModelStatusResponse,
+    MonitoringResponse,
     PageMeta,
     PredictionRunResponse,
     PredictionRunsResponse,
@@ -49,13 +51,15 @@ from api_contracts import (
     SeedSampleResponse,
     SummaryResponse,
     TrendsResponse,
-    BetJournalUpdateRequest,
 )
+from monitoring import api_metrics_snapshot, build_drift_report, drift_alerts, record_api_request, utc_timestamp, worst_status
 from prediction_model import (
+    add_scoring_features,
     artifact_uri_to_path,
     build_feature_table,
     evaluate_model,
     load_model_artifact,
+    predict_probabilities,
     save_model_artifact,
     score_current_races,
     summarize_entities,
@@ -101,8 +105,8 @@ REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 
 app = FastAPI(
     title="Horse Predictor API",
-    version="0.6.0",
-    description="Versioned API for race cards, artifact-backed model predictions, ingestion status, and model evaluation.",
+    version="0.7.0",
+    description="Versioned API for race cards, artifact-backed model predictions, ingestion status, model evaluation, and monitoring.",
     responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 413: {"model": ErrorResponse}, 422: {"model": ErrorResponse}, 429: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(SETTINGS.allowed_hosts))
@@ -114,6 +118,7 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
     expose_headers=["X-Request-ID"],
 )
+TRACING_STATUS = configure_tracing(app, SETTINGS.otel_enabled, SETTINGS.otel_service_name)
 
 router = APIRouter(tags=["v1"])
 
@@ -181,6 +186,7 @@ async def request_context_middleware(request: Request, call_next):
     active_request_id = normalize_request_id(request.headers.get("x-request-id"))
     token = request_id_context.set(active_request_id)
     start = time.monotonic()
+    status_code = 500
 
     try:
         if content_length_too_large(request):
@@ -195,11 +201,19 @@ async def request_context_middleware(request: Request, call_next):
             )
         else:
             response = await call_next(request)
+        status_code = response.status_code
         response.headers["X-Request-ID"] = active_request_id
         apply_security_headers(response)
         return response
     finally:
         elapsed_ms = round((time.monotonic() - start) * 1000, 2)
+        request_flags = record_api_request(
+            request.method,
+            request.url.path,
+            status_code,
+            elapsed_ms,
+            slow_request_ms=SETTINGS.monitoring_slow_request_ms,
+        )
         logger.info(
             "api_request",
             extra={
@@ -207,6 +221,8 @@ async def request_context_middleware(request: Request, call_next):
                 "method": request.method,
                 "path": request.url.path,
                 "elapsed_ms": elapsed_ms,
+                "status_code": status_code,
+                "slow_request": request_flags["isSlow"],
             },
         )
         request_id_context.reset(token)
@@ -556,6 +572,333 @@ def data_quality() -> dict[str, Any]:
             }
         )
     return {"requestId": request_id(), "tables": table_payloads, "providerFreshness": provider_freshness_report(DATABASE_URL)}
+
+
+def metric_payload(
+    name: str,
+    label: str,
+    value: float | int | str | None,
+    status: str = "ok",
+    unit: str | None = None,
+    description: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "name": name,
+        "label": label,
+        "value": clean_value(value),
+        "unit": unit,
+        "status": status,
+        "description": description,
+    }
+
+
+def alert_payload(
+    severity: str,
+    category: str,
+    code: str,
+    message: str,
+    value: float | int | str | None = None,
+    threshold: float | int | str | None = None,
+) -> dict[str, Any]:
+    return {
+        "severity": severity,
+        "category": category,
+        "code": code,
+        "message": message,
+        "value": clean_value(value),
+        "threshold": clean_value(threshold),
+    }
+
+
+def reference_prediction_frame(model: Any, history_features: pd.DataFrame) -> pd.DataFrame:
+    reference_predictions = history_features.copy()
+    if reference_predictions.empty:
+        return reference_predictions
+
+    probabilities = pd.Series(predict_probabilities(model, reference_predictions), index=reference_predictions.index)
+    implied_probability = (
+        pd.to_numeric(reference_predictions["implied_probability"], errors="coerce")
+        if "implied_probability" in reference_predictions.columns
+        else pd.Series(0.0, index=reference_predictions.index)
+    )
+    reference_predictions["win_probability"] = probabilities
+    reference_predictions["model_odds"] = probabilities.map(lambda probability: 1 / probability if probability > 0 else None)
+    reference_predictions["value_edge"] = probabilities - implied_probability
+    return reference_predictions
+
+
+def monitoring_status(drift_report: dict[str, Any], alerts: list[dict[str, Any]]) -> str:
+    statuses = [str(drift_report.get("status") or "blocked")]
+    statuses.extend(str(alert["severity"]) for alert in alerts)
+    return worst_status(statuses)
+
+
+def add_freshness_alerts(
+    alerts: list[dict[str, Any]],
+    freshness: dict[str, Any],
+    provider_freshness: list[dict[str, Any]],
+) -> None:
+    freshness_status = freshness.get("status")
+    if freshness_status in {"stale", "missing", "unknown"}:
+        alerts.append(
+            alert_payload(
+                "critical" if freshness_status == "missing" else "warning",
+                "freshness",
+                f"data_freshness_{freshness_status}",
+                f"Race data freshness is {freshness_status}.",
+                value=freshness.get("ageHours"),
+                threshold=freshness.get("maxAgeHours"),
+            )
+        )
+
+    for row in provider_freshness:
+        provider_status = str(row.get("status") or "unknown")
+        if provider_status == "success":
+            continue
+        alerts.append(
+            alert_payload(
+                "critical" if provider_status == "failed" else "warning",
+                "provider",
+                f"provider_{provider_status}",
+                f"{row.get('provider') or 'Provider'} {row.get('tableName') or 'table'} ingestion is {provider_status}.",
+                value=row.get("rowCount"),
+                threshold="success",
+            )
+        )
+
+
+def add_runtime_alerts(alerts: list[dict[str, Any]], api_metrics: dict[str, Any], counts: dict[str, int]) -> None:
+    if counts.get("historical", 0) == 0 or counts.get("current", 0) == 0:
+        alerts.append(
+            alert_payload(
+                "critical",
+                "data",
+                "race_tables_empty",
+                "Historical and current race tables must both contain rows before serving predictions.",
+            )
+        )
+
+    if api_metrics.get("errorRate", 0) > SETTINGS.monitoring_max_error_rate:
+        alerts.append(
+            alert_payload(
+                "critical",
+                "api",
+                "api_error_rate_high",
+                "API error rate is above the configured monitoring threshold.",
+                value=api_metrics.get("errorRate"),
+                threshold=SETTINGS.monitoring_max_error_rate,
+            )
+        )
+
+    if api_metrics.get("slowRequests", 0) > 0:
+        alerts.append(
+            alert_payload(
+                "warning",
+                "api",
+                "api_slow_requests_seen",
+                "At least one API request exceeded the configured slow-request threshold.",
+                value=api_metrics.get("slowRequests"),
+                threshold=SETTINGS.monitoring_slow_request_ms,
+            )
+        )
+
+
+def build_monitoring_payload() -> dict[str, Any]:
+    generated_at = utc_timestamp()
+    ensure_seed_data()
+    counts = current_counts()
+    status_df = ingestion_status(DATABASE_URL)
+    last_refresh = None if status_df.empty else clean_value(status_df.iloc[0]["ingested_at"])
+    freshness = data_freshness(last_refresh)
+    provider_freshness = provider_freshness_report(DATABASE_URL)
+    api_metrics = api_metrics_snapshot()
+    alerts: list[dict[str, Any]] = []
+
+    history_df = read_races(DATABASE_URL, TABLES["historical"])
+    current_df = read_races(DATABASE_URL, TABLES["current"])
+    history_features = build_feature_table(history_df)
+    try:
+        current_features = add_scoring_features(current_df)
+    except ValueError as exc:
+        current_features = pd.DataFrame()
+        alerts.append(
+            alert_payload(
+                "critical",
+                "data",
+                "current_feature_build_failed",
+                f"Current feature generation failed: {exc}",
+            )
+        )
+
+    reference_predictions: pd.DataFrame | None = None
+    current_predictions: pd.DataFrame | None = None
+    model_signal: dict[str, Any] = {
+        "ready": False,
+        "servingMode": "blocked",
+        "modelVersionId": None,
+        "artifactUri": None,
+        "evaluationStatus": "skipped",
+        "evaluationMessage": None,
+        "tracingStatus": TRACING_STATUS,
+    }
+
+    try:
+        _, _, model, _, model_record, serving_mode = load_serving_model_bundle()
+        current_predictions = score_current_races(model, current_df)
+        reference_predictions = reference_prediction_frame(model, history_features)
+        model_signal.update(
+            {
+                "ready": True,
+                "servingMode": serving_mode,
+                "modelVersionId": model_record.get("id") if model_record else None,
+                "artifactUri": model_record.get("artifactUri") if model_record else None,
+                "trainingRows": model.training_rows,
+                "featureCount": len(model.feature_columns),
+            }
+        )
+    except HTTPException as exc:
+        model_signal["evaluationMessage"] = str(exc.detail)
+        alerts.append(
+            alert_payload(
+                "critical",
+                "model",
+                "model_serving_blocked",
+                f"Model serving is blocked: {exc.detail}",
+            )
+        )
+
+    evaluation = evaluate_model(history_features).to_dict()
+    model_signal["evaluationStatus"] = evaluation["status"]
+    model_signal["evaluationMessage"] = evaluation["message"]
+    if evaluation["status"] != "ok":
+        alerts.append(
+            alert_payload(
+                "warning",
+                "model",
+                "holdout_evaluation_not_ok",
+                evaluation["message"] or "Holdout evaluation did not return an ok status.",
+                value=evaluation["status"],
+                threshold="ok",
+            )
+        )
+
+    drift_report = build_drift_report(
+        history_features,
+        current_features,
+        reference_predictions=reference_predictions,
+        current_predictions=current_predictions,
+        warning_threshold=SETTINGS.monitoring_drift_warning_threshold,
+        critical_threshold=SETTINGS.monitoring_drift_critical_threshold,
+    )
+    alerts.extend(drift_alerts(drift_report))
+    add_freshness_alerts(alerts, freshness, provider_freshness)
+    add_runtime_alerts(alerts, api_metrics, counts)
+
+    registry = read_model_registry(DATABASE_URL, limit=100)
+    approved_models = [model for model in registry.get("models", []) if model.get("status") == "approved"]
+    approved_artifacts = [model for model in approved_models if model.get("artifactReady")]
+    if not approved_models:
+        alerts.append(
+            alert_payload(
+                "warning",
+                "governance",
+                "no_approved_model",
+                "No approved model version is recorded yet.",
+                value=0,
+                threshold=1,
+            )
+        )
+    elif not approved_artifacts:
+        alerts.append(
+            alert_payload(
+                "warning",
+                "governance",
+                "approved_model_artifact_missing",
+                "An approved model exists but no approved artifact is ready.",
+                value=0,
+                threshold=1,
+            )
+        )
+
+    runs = read_prediction_runs(DATABASE_URL, limit=1)
+    if not runs.get("runs"):
+        alerts.append(
+            alert_payload(
+                "warning",
+                "governance",
+                "no_prediction_run",
+                "No persisted prediction run snapshot is recorded yet.",
+                value=0,
+                threshold=1,
+            )
+        )
+
+    alert_rank = {"critical": 0, "blocked": 1, "warning": 2}
+    alerts = sorted(alerts, key=lambda alert: (alert_rank.get(str(alert.get("severity")), 9), str(alert.get("code"))))
+    metrics = [
+        metric_payload("historical_rows", "Historical rows", counts.get("historical", 0), unit="count"),
+        metric_payload("current_runners", "Current runners", counts.get("current", 0), unit="count"),
+        metric_payload(
+            "data_freshness",
+            "Data freshness",
+            freshness.get("ageHours"),
+            status="ok" if freshness.get("status") == "fresh" else "warning",
+            unit="hours",
+            description=str(freshness.get("status") or "unknown"),
+        ),
+        metric_payload(
+            "api_error_rate",
+            "API error rate",
+            api_metrics.get("errorRate"),
+            status="critical" if api_metrics.get("errorRate", 0) > SETTINGS.monitoring_max_error_rate else "ok",
+            unit="percent",
+        ),
+        metric_payload(
+            "average_latency",
+            "Average API latency",
+            api_metrics.get("averageLatencyMs"),
+            status="warning" if api_metrics.get("slowRequests", 0) > 0 else "ok",
+            unit="ms",
+        ),
+        metric_payload(
+            "feature_drift_checks",
+            "Feature drift checks",
+            len(drift_report.get("featureDrift", [])),
+            status=drift_report.get("status", "blocked"),
+            unit="count",
+        ),
+        metric_payload(
+            "prediction_drift_checks",
+            "Prediction drift checks",
+            len(drift_report.get("predictionDrift", [])),
+            status=drift_report.get("status", "blocked"),
+            unit="count",
+        ),
+        metric_payload(
+            "operator_alerts",
+            "Operator alerts",
+            len(alerts),
+            status=worst_status([str(alert["severity"]) for alert in alerts]) if alerts else "ok",
+            unit="count",
+        ),
+    ]
+
+    return {
+        "status": monitoring_status(drift_report, alerts),
+        "generatedAt": generated_at,
+        "dataFreshness": freshness,
+        "providerFreshness": provider_freshness,
+        "apiMetrics": api_metrics,
+        "metrics": metrics,
+        "alerts": alerts,
+        "drift": drift_report,
+        "model": model_signal,
+    }
+
+
+@router.get("/monitoring", response_model=MonitoringResponse)
+def monitoring() -> dict[str, Any]:
+    return {"requestId": request_id(), **build_monitoring_payload()}
 
 
 @router.get("/safeguards", response_model=ProductSafeguardsResponse)

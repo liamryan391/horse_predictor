@@ -14,6 +14,7 @@ REQUIRED_ENDPOINTS = [
     "/api/v1/ready",
     "/api/v1/summary",
     "/api/v1/data-quality",
+    "/api/v1/monitoring",
     "/api/v1/safeguards",
     "/api/v1/model/registry",
     "/api/v1/model/evaluation",
@@ -66,6 +67,7 @@ def check_readiness(payloads: dict[str, dict[str, Any]], args: argparse.Namespac
     summary = payloads["/api/v1/summary"]
     safeguards = payloads["/api/v1/safeguards"]
     data_quality = payloads["/api/v1/data-quality"]
+    monitoring = payloads["/api/v1/monitoring"]
     registry = payloads["/api/v1/model/registry"]
     prediction_runs = payloads["/api/v1/prediction-runs"]
 
@@ -130,6 +132,30 @@ def check_readiness(payloads: dict[str, dict[str, Any]], args: argparse.Namespac
                 failures,
             )
 
+    if args.require_monitoring:
+        require(
+            monitoring.get("status") in {"ok", "warning", "blocked", "critical"},
+            "/api/v1/monitoring must return a known status.",
+            failures,
+        )
+        require(bool(monitoring.get("metrics")), "/api/v1/monitoring must include operator metrics.", failures)
+        require(isinstance(monitoring.get("apiMetrics"), dict), "/api/v1/monitoring must include API metrics.", failures)
+        drift = monitoring.get("drift") or {}
+        require(bool(drift.get("featureDrift")), "/api/v1/monitoring must include feature drift checks.", failures)
+        require(bool(drift.get("predictionDrift")), "/api/v1/monitoring must include prediction drift checks.", failures)
+
+    if args.require_no_critical_alerts:
+        critical_alerts = [
+            alert
+            for alert in monitoring.get("alerts") or []
+            if alert.get("severity") in {"critical", "blocked"}
+        ]
+        require(
+            not critical_alerts,
+            f"/api/v1/monitoring has critical alerts: {', '.join(str(alert.get('code')) for alert in critical_alerts)}.",
+            failures,
+        )
+
     return failures
 
 
@@ -156,6 +182,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--require-prediction-run", action="store_true", help="Require at least one persisted prediction run.")
     parser.add_argument("--require-enriched-data", action="store_true", help="Require core enrichment fields to meet the coverage threshold.")
     parser.add_argument("--min-enrichment-coverage", type=float, default=0.75, help="Minimum required coverage for core enrichment fields.")
+    parser.add_argument("--require-monitoring", action="store_true", help="Require the monitoring endpoint to expose metrics and drift checks.")
+    parser.add_argument("--require-no-critical-alerts", action="store_true", help="Fail when monitoring reports critical or blocked alerts.")
     parser.add_argument("--require-hsts", action="store_true", help="Require Strict-Transport-Security for HTTPS deployments.")
     return parser.parse_args(argv)
 
@@ -178,9 +206,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     freshness = payloads["/api/v1/summary"].get("dataFreshness") or {}
+    monitoring = payloads["/api/v1/monitoring"]
     ready = payloads["/api/v1/ready"]
     print(f"Production readiness check passed for {base_url}.")
-    print(f"Ready: {ready.get('status')}; freshness: {freshness.get('status')}.")
+    print(f"Ready: {ready.get('status')}; freshness: {freshness.get('status')}; monitoring: {monitoring.get('status')}.")
     return 0
 
 

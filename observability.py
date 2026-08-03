@@ -16,7 +16,23 @@ class JsonLogFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
 
-        for field_name in ["request_id", "method", "path", "elapsed_ms", "provider", "target_table"]:
+        for field_name in [
+            "request_id",
+            "method",
+            "path",
+            "elapsed_ms",
+            "status_code",
+            "slow_request",
+            "provider",
+            "target_table",
+            "metric",
+            "value",
+            "threshold",
+            "severity",
+            "category",
+            "otel_status",
+            "service_name",
+        ]:
             if hasattr(record, field_name):
                 payload[field_name] = getattr(record, field_name)
 
@@ -39,3 +55,33 @@ def configure_logging(app_env: str, log_format: str) -> None:
     root_logger = logging.getLogger()
     root_logger.setLevel(level)
     root_logger.handlers = [handler]
+
+
+def configure_tracing(app: Any, enabled: bool, service_name: str) -> str:
+    if not enabled:
+        return "disabled"
+
+    tracer_logger = logging.getLogger("horse_predictor.observability")
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    except ImportError:
+        tracer_logger.warning(
+            "otel_unavailable",
+            extra={"otel_status": "unavailable", "service_name": service_name},
+        )
+        return "unavailable"
+
+    try:
+        FastAPIInstrumentor.instrument_app(app)
+    except Exception:
+        tracer_logger.exception(
+            "otel_instrumentation_failed",
+            extra={"otel_status": "failed", "service_name": service_name},
+        )
+        return "failed"
+
+    tracer_logger.info(
+        "otel_instrumentation_enabled",
+        extra={"otel_status": "enabled", "service_name": service_name},
+    )
+    return "enabled"

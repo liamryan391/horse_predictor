@@ -607,10 +607,29 @@ td {
   color: var(--good);
 }
 
+.status-pill.ok {
+  border-color: color-mix(in srgb, var(--good) 55%, var(--line));
+  background: color-mix(in srgb, var(--good) 14%, var(--panel));
+  color: var(--good);
+}
+
 .status-pill.candidate {
   border-color: color-mix(in srgb, var(--gold) 55%, var(--line));
   background: color-mix(in srgb, var(--gold) 14%, var(--panel));
   color: var(--gold);
+}
+
+.status-pill.warning {
+  border-color: color-mix(in srgb, var(--gold) 55%, var(--line));
+  background: color-mix(in srgb, var(--gold) 14%, var(--panel));
+  color: var(--gold);
+}
+
+.status-pill.critical,
+.status-pill.blocked {
+  border-color: color-mix(in srgb, var(--bad) 55%, var(--line));
+  background: color-mix(in srgb, var(--bad) 14%, var(--panel));
+  color: var(--bad);
 }
 
 .status-pill.superseded {
@@ -655,6 +674,56 @@ td {
   display: block;
   height: 100%;
   background: linear-gradient(90deg, var(--good), var(--gold), var(--bad));
+}
+
+.monitoring-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.monitoring-panel > .evaluation-header {
+  align-items: center;
+}
+
+.monitoring-panel > .evaluation-header > .status-pill {
+  margin-left: auto;
+}
+
+.monitoring-metric {
+  display: grid;
+  gap: 6px;
+  min-height: 124px;
+  align-content: start;
+}
+
+.monitoring-metric small {
+  min-height: 18px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.monitoring-metric .status-pill {
+  width: fit-content;
+}
+
+.monitoring-api-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.alert-table-wrap table {
+  min-width: 820px;
+}
+
+.drift-table-wrap table {
+  min-width: 980px;
+}
+
+.drift-detail {
+  max-width: 280px;
+  white-space: normal;
 }
 
 .trend-grid,
@@ -846,8 +915,18 @@ td {
   .race-focus-grid,
   .trend-grid,
   .info-grid,
-  .safeguard-grid {
+  .safeguard-grid,
+  .monitoring-api-grid {
     grid-template-columns: 1fr;
+  }
+
+  .monitoring-panel > .evaluation-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .monitoring-panel > .evaluation-header > .status-pill {
+    margin-left: 0;
   }
 
   .race-detail-header {

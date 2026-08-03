@@ -12,6 +12,7 @@ Runtime controls:
 - `API_AUTH_TOKEN` must be a non-placeholder secret with at least 32 characters.
 - `MAX_REQUEST_BODY_BYTES` rejects oversized requests before route handlers run.
 - `REQUIRE_APPROVED_MODEL_ARTIFACT=true` requires an approved, loadable model artifact before prediction serving is ready.
+- Monitoring thresholds are configurable with `MONITORING_DRIFT_WARNING_THRESHOLD`, `MONITORING_DRIFT_CRITICAL_THRESHOLD`, `MONITORING_SLOW_REQUEST_MS`, and `MONITORING_MAX_ERROR_RATE`.
 - API responses include request IDs and baseline security headers.
 - Administrative routes compare bearer tokens with constant-time comparison.
 
@@ -46,10 +47,10 @@ Before launch, prove that production data can be restored into an isolated stagi
 5. Run acceptance checks:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\production-readiness-check.py --base-url https://horse-predictor-api-staging.example.com --require-policy-links --require-approved-artifact --require-enriched-data
+.\.venv\Scripts\python.exe scripts\production-readiness-check.py --base-url https://horse-predictor-api-staging.example.com --require-policy-links --require-approved-artifact --require-enriched-data --require-monitoring
 ```
 
-6. Confirm `/api/v1/summary` reports fresh data, `/api/v1/data-quality` reports acceptable enrichment coverage, `/api/v1/model/evaluation` is acceptable for launch, and `/api/v1/model` reports `servingMode=artifact`.
+6. Confirm `/api/v1/summary` reports fresh data, `/api/v1/data-quality` reports acceptable enrichment coverage, `/api/v1/monitoring` reports populated drift checks, `/api/v1/model/evaluation` is acceptable for launch, and `/api/v1/model` reports `servingMode=artifact`.
 
 ## Product Safeguards
 
@@ -99,12 +100,13 @@ When production is expected to have an approved model, add `--require-approved-m
 When production is expected to serve from a persisted artifact, add `--require-approved-artifact`.
 When production is expected to have persisted scoring evidence, add `--require-prediction-run` too.
 When production is expected to have provider-grade enrichment coverage, add `--require-enriched-data`.
+When production monitoring should be release-blocking, add `--require-monitoring --require-no-critical-alerts`.
 
 Monitored release:
 
 - Deploy backend first and wait for `/api/v1/ready`.
 - Deploy frontend with the production `VITE_API_BASE_URL`.
-- Watch JSON logs for 4xx/5xx spikes, slow requests, ingestion failures, stale freshness, and model-evaluation degradation.
+- Watch `/api/v1/monitoring`, JSON logs, and any platform telemetry for 4xx/5xx spikes, slow requests, drift, ingestion failures, stale freshness, and model-evaluation degradation.
 
 Rollback:
 
