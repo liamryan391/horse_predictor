@@ -24,6 +24,15 @@ Dependabot is already configured for Python, frontend npm, and GitHub Actions up
 
 The workflow runs `scripts/production-readiness-check.py` with release-grade gates, then writes `release-records/staging-release-record.json` and uploads it as an artifact.
 
+Before running the workflow against a new environment, run:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\staging-env-check.py --env-file .env.staging --require-release-token --require-policy-links
+.\.venv\Scripts\python.exe scripts\managed-db-rehearsal.py --mode roundtrip --source-url $env:DATABASE_URL --restore-url $env:RESTORE_DATABASE_URL --backup-path backups\staging-rehearsal.sql
+```
+
+The second command is a dry-run unless `--execute` is added.
+
 ## Local Release Command
 
 The existing staging release scripts can now run acceptance gates and write release evidence.

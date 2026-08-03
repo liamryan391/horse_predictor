@@ -26,6 +26,7 @@ August 3, 2026 pre-merge checks found:
 - sample ingestion writes rows into a fresh DB, API track matching works for York, and prediction ranking works
 - `agent-browser` can become daemon-blocked on this machine, so browser automation should be stabilized before it becomes the only visual release gate
 - Phase 22 account-auth checks now pass with named operator accounts, hashed bearer tokens, role-aware session resolution, account-scoped journal ownership, and an Alembic `operator_accounts` migration
+- Phase 23 now has managed-data guardrails for staging/production env validation, MySQL backup/restore rehearsal planning, restore-target safety checks, and CI coverage for those helpers
 
 ## Internet And Provider Leads
 
@@ -173,20 +174,23 @@ Goal: deploy a release candidate with managed database, secrets, backups, and re
 
 ### 23.1 Managed Database
 
-- Move staging to managed MySQL or another managed SQL database.
-- Prove backup and restore into an isolated database.
-- Add migration runbook and rollback boundaries.
+- Current status: `scripts/managed-db-rehearsal.py` plans or executes MySQL/MariaDB backup and restore rehearsals with redacted output.
+- Current status: the rehearsal refuses same-target restores and warns when restore database names do not look isolated.
+- Current status: `docs/MANAGED_DATA.md` documents managed DB boundaries, dry-run/execute commands, migration checks, and rollback limits.
+- Next: run the rehearsal against a real managed staging source and isolated restore database once cloud database URLs exist.
 
 ### 23.2 Secret And Runtime Configuration
 
-- Store provider credentials, admin tokens, journal tokens, and database URLs in hosting secrets only.
-- Configure CORS, allowed hosts, policy links, data license references, and artifact storage.
+- Current status: `scripts/staging-env-check.py` validates deployed env files for managed SQL, HTTPS URLs, allowed hosts, account auth, release tokens, policy links, provider credentials, and placeholder values.
+- Current status: staging/production env examples include `ACCOUNT_AUTH_TOKEN` and `RESTORE_DATABASE_URL` checklist fields.
+- Current status: Docker staging config allows Phase 22 account auth without requiring legacy shared tokens.
+- Next: store real database URLs, provider credentials, policy links, and account tokens only in the chosen host's secret store.
 
 ### 23.3 Staging Acceptance
 
-- Run GitHub staging acceptance workflow against deployed API.
-- Upload release record artifact.
-- Verify frontend points at deployed API.
+- Current status: CI compiles the deployment helper scripts and dry-runs staging env plus managed DB rehearsal checks.
+- Current status: `.github/workflows/staging-acceptance.yml` prefers `ACCOUNT_AUTH_TOKEN` with legacy `API_AUTH_TOKEN` fallback.
+- Next: run the manual staging acceptance workflow against a deployed API URL and upload the release record artifact.
 
 ## Phase 24: Race-Day Operations UX
 
@@ -274,4 +278,4 @@ Goal: make the product safe to share outside local development.
 
 ## Recommended Next Roadmap03 Step
 
-Phase 22 now has named operator accounts, account-token session resolution, admin account management endpoints, account-scoped journal ownership, audit coverage for account upserts, and a local smoke script. Move next into Phase 23: production hosting and managed data, so the app can run against managed SQL, hosted secrets, backups, and staging acceptance gates.
+Phase 23 now has deployment guardrails for managed SQL configuration, secret/env validation, backup/restore rehearsal, restore safety, and staging acceptance inputs. Move next into Phase 24: Race-Day Operations UX, so the app becomes more useful while live race cards change through the day.

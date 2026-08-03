@@ -59,6 +59,15 @@ Before launch, prove that production data can be restored into an isolated stagi
 
 6. Confirm `/api/v1/summary` reports fresh data, `/api/v1/data-quality` reports acceptable enrichment coverage, `/api/v1/monitoring` reports populated drift checks, `/api/v1/model/evaluation` is acceptable for launch, and `/api/v1/model` reports `servingMode=artifact`.
 
+Phase 23 adds helper checks:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\staging-env-check.py --env-file .env.production --require-release-token --require-policy-links --require-provider-credentials
+.\.venv\Scripts\python.exe scripts\managed-db-rehearsal.py --mode roundtrip --source-url $env:DATABASE_URL --restore-url $env:RESTORE_DATABASE_URL --backup-path backups\production-rehearsal.sql
+```
+
+See [MANAGED_DATA.md](MANAGED_DATA.md) for dry-run and `--execute` usage.
+
 ## Product Safeguards
 
 The API exposes `GET /api/v1/safeguards`, and the frontend Responsible Use page displays the same launch-safe policy text.

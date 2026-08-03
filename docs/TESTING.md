@@ -29,6 +29,7 @@ The suite covers:
 - monitoring drift helpers, API request counters, and the `/api/v1/monitoring` contract
 - local broker cache helpers, manual JSON normalization, and local AI JSON validation
 - normalized provider entity sync, table counts, and normalized race-entry read model
+- managed DB rehearsal planning, restore-target safety, staging env validation, and secret redaction
 
 ## Frontend
 
@@ -107,6 +108,13 @@ Run the normalized provider entity backfill check:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\normalized-backfill-check.py --database-url .codex_tmp\phase21-normalized.db --source sample
+```
+
+Run Phase 23 deployment guardrails:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\staging-env-check.py --env-file .env.staging.example --allow-placeholders --require-release-token
+.\.venv\Scripts\python.exe scripts\managed-db-rehearsal.py --mode roundtrip --source-url mysql+pymysql://horse_user:secret@db.example.net:3306/horse_predictor --restore-url mysql+pymysql://horse_restore:secret@restore.example.net:3306/horse_predictor_restore --backup-path backups\dry-run.sql
 ```
 
 When `agent-browser` is available on PATH, use it for the visual pass:

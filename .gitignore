@@ -7,6 +7,7 @@ __pycache__/
 model_artifacts/
 broker_payloads/
 release-records/
+backups/
 .streamlit/
 node_modules/
 frontend/node_modules/

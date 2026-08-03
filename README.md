@@ -246,6 +246,7 @@ See [docs/CI_RELEASE.md](docs/CI_RELEASE.md) for GitHub Actions CI, staging acce
 See [docs/TESTING.md](docs/TESTING.md) for automated backend, data/model, frontend utility, and browser smoke checks.
 See [docs/LIVE_TESTING.md](docs/LIVE_TESTING.md) for live provider setup, race-card import checks, DB verification, and local release rehearsal.
 See [docs/LOCAL_DATA_BROKER.md](docs/LOCAL_DATA_BROKER.md) for raw provider payload cache, replay, and local AI smoke checks.
+See [docs/MANAGED_DATA.md](docs/MANAGED_DATA.md) for staging/production env validation, managed DB backup/restore rehearsal, and rollback boundaries.
 See [docs/CLOUD_STAGING.md](docs/CLOUD_STAGING.md) for staging deployment, migration, ingestion worker, and observability notes.
 See [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) for security, safeguards, launch acceptance, and rollback gates.
 See [docs/MODEL_OPERATIONS.md](docs/MODEL_OPERATIONS.md) for persisted model artifacts, approval, and registry workflow.
