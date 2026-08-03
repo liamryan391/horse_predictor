@@ -47,14 +47,15 @@ The signal labels are deterministic UI explanations from available model inputs;
 
 ## Bet Journal
 
-The bet journal stores entries in browser local storage. It tracks:
+Phase 15 moves the bet journal to the server-side `/api/v1/bet-journal` API while keeping browser local storage as a temporary cache/fallback. It tracks:
 
 - open and settled positions
 - total stake
 - settled profit
 - settled ROI
+- race date, placed odds, closing odds, settlement status, and notes
 
-Journal metrics are intentionally separate from model-evaluation metrics.
+Journal metrics are intentionally separate from model-evaluation metrics. Server rows can carry optional prediction-run, model-version, and normalized race-entry links for later audit views.
 
 ## Responsible Use
 

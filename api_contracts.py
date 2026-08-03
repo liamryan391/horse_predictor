@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Literal
 
 from pydantic import BaseModel, Field
 
@@ -161,6 +161,80 @@ class PredictionRunResponse(BaseModel):
     run: PredictionRunRow
     entries: List[PredictionRunEntry]
     page: PageMeta
+
+
+BetJournalStatus = Literal["open", "won", "lost", "void"]
+
+
+class BetJournalEntry(BaseModel):
+    id: int
+    accountKey: str
+    raceEntryId: int | None = None
+    predictionRunId: int | None = None
+    predictionRunEntryId: int | None = None
+    modelVersionId: int | None = None
+    horse: str
+    track: str | None = None
+    raceDate: str | None = None
+    betType: str = "win"
+    stake: float
+    odds: float
+    closingOdds: float | None = None
+    status: BetJournalStatus
+    createdAt: str | None = None
+    updatedAt: str | None = None
+    settledAt: str | None = None
+    profitLoss: float | None = None
+    notes: str | None = None
+
+
+class BetJournalCreateRequest(BaseModel):
+    horse: str = Field(min_length=1, max_length=160)
+    track: str | None = Field(default=None, max_length=120)
+    raceDate: str | None = None
+    betType: str = Field(default="win", min_length=1, max_length=80)
+    stake: float = Field(gt=0)
+    odds: float = Field(gt=1)
+    closingOdds: float | None = Field(default=None, gt=1)
+    status: BetJournalStatus = "open"
+    notes: str | None = Field(default=None, max_length=2000)
+    raceEntryId: int | None = None
+    predictionRunId: int | None = None
+    predictionRunEntryId: int | None = None
+    modelVersionId: int | None = None
+
+
+class BetJournalUpdateRequest(BaseModel):
+    horse: str | None = Field(default=None, min_length=1, max_length=160)
+    track: str | None = Field(default=None, max_length=120)
+    raceDate: str | None = None
+    betType: str | None = Field(default=None, min_length=1, max_length=80)
+    stake: float | None = Field(default=None, gt=0)
+    odds: float | None = Field(default=None, gt=1)
+    closingOdds: float | None = Field(default=None, gt=1)
+    status: BetJournalStatus | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+    raceEntryId: int | None = None
+    predictionRunId: int | None = None
+    predictionRunEntryId: int | None = None
+    modelVersionId: int | None = None
+
+
+class BetJournalListResponse(BaseModel):
+    requestId: str
+    bets: List[BetJournalEntry]
+    page: PageMeta
+
+
+class BetJournalEntryResponse(BaseModel):
+    requestId: str
+    bet: BetJournalEntry
+
+
+class BetJournalDeleteResponse(BaseModel):
+    requestId: str
+    id: int
+    deleted: bool
 
 
 class MeetingRow(BaseModel):

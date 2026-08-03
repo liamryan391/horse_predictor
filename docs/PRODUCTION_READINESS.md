@@ -62,7 +62,7 @@ Production signoff must confirm:
 - Model limitations and data freshness are visible.
 - The operator has the right to display each provider's race-card, odds, and result data.
 - `RESPONSIBLE_GAMBLING_URL`, `PRIVACY_POLICY_URL`, and `TERMS_OF_USE_URL` point at approved public pages.
-- Bet journal behavior is covered by the privacy policy before any account-backed or server-stored bet history is introduced.
+- Bet journal behavior is covered by the privacy policy before personal account-backed bet history is introduced.
 
 ## Launch Process
 

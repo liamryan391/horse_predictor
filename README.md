@@ -6,7 +6,7 @@ Professional horse racing intelligence platform powered by API ingestion, MySQL-
 
 - `data_pipeline.py`: pulls sample or API data and writes SQL tables.
 - `racing_storage.py`: SQLAlchemy storage layer for MySQL in production and SQLite for local development.
-- `api.py`: FastAPI service for predictions, prediction-run history, trends, race cards, data quality, and ingestion health.
+- `api.py`: FastAPI service for predictions, prediction-run history, bet journal records, trends, race cards, data quality, and ingestion health.
 - `frontend/`: React + TypeScript racing workspace with rankings, race centre, race cards, evaluation, provider freshness, and bet journal pages.
 - `horse_racing_app.py`: legacy Streamlit dashboard kept for quick internal checks.
 

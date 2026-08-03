@@ -44,6 +44,14 @@ The normalized tables give future phases a place to store provider identifiers, 
 
 The database stores artifact references and integrity values; the model artifact files themselves live under `MODEL_ARTIFACT_DIR` or equivalent durable storage.
 
+`user_bets` now backs the server-side Bet Journal. It supports manual journal rows before provider entity matching is complete:
+
+- `account_key` stores the current operator-local ownership scope until real account auth exists.
+- `horse`, `track`, and `race_date` capture manual runner context.
+- `stake`, `odds_decimal`, `closing_odds_decimal`, `status`, `settled_at`, and `profit_loss` capture settlement state.
+- `prediction_run_id`, `prediction_run_entry_id`, `model_version_id`, and nullable `race_entry_id` provide linkage points for model and result audits.
+- `notes` and `updated_at` keep operator context without storing personal contact data.
+
 ## Migrations
 
 Run migrations after installing dependencies:
@@ -58,7 +66,7 @@ Linux/macOS:
 .venv/bin/python -m alembic upgrade head
 ```
 
-The first migration is intentionally safe against an existing local SQLite database. It creates missing tables with `checkfirst=True` and records the Alembic version. Later migrations add job locks, prediction-run entries, and model artifact integrity columns.
+The first migration is intentionally safe against an existing local SQLite database. It creates missing tables with `checkfirst=True` and records the Alembic version. Later migrations add job locks, prediction-run entries, model artifact integrity columns, and server-side Bet Journal fields.
 
 ## Ingestion Writes
 

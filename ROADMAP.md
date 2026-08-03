@@ -307,7 +307,7 @@ Current inspection: the workspace now uses `/api/v1` for meetings, race-card row
 - Filter by track, bet type, horse, and date.
 - Avoid language that guarantees profit.
 
-Current inspection: the frontend now includes a browser-local bet journal for open/settled positions, stake, profit, and ROI. Server-side bet history remains future work.
+Current inspection: the frontend now includes a server-backed bet journal with local fallback, open/settled positions, race date, stake, placed odds, closing odds, notes, profit, and ROI.
 
 ### 6.4 Dynamic Experience
 
@@ -345,7 +345,7 @@ Current inspection: the Python suite now covers API contracts, provider fixture 
 - Responsive-layout checks.
 - End-to-end race-card workflow.
 
-Current inspection: the frontend now has Node test coverage for browser-local bet journal math, draft validation, stored-row parsing, race-centre grouping, race-centre runner sorting, and race-centre signal labels. Vite build and live HTTP/browser smoke checks remain the UI gate until a dedicated component/e2e runner is introduced.
+Current inspection: the frontend now has Node test coverage for bet journal math, server payload validation, stored-row parsing, race-centre grouping, race-centre runner sorting, and race-centre signal labels. Vite build and live HTTP/browser smoke checks remain the UI gate until a dedicated component/e2e runner is introduced.
 
 ### 7.3 Data And Model Tests
 
@@ -483,6 +483,6 @@ Current inspection: Phase 11 persists scoring snapshots. Phase 12 now links pred
 
 ## Continued Planning
 
-The next build plan continues in `ROADMAP02.md`. Phase 12: Artifact-Backed Model Serving, Phase 13: Data Enrichment And Provider Depth, and Phase 14: Race Centre UX are implemented; the next planned stage is Phase 15: Server-Side Bet Journal.
+The next build plan continues in `ROADMAP02.md`. Phase 12: Artifact-Backed Model Serving, Phase 13: Data Enrichment And Provider Depth, Phase 14: Race Centre UX, and Phase 15: Server-Side Bet Journal are implemented; the next planned stage is Phase 16: Monitoring And Drift.
 
 Longer-term product, data, modelling, governance, and monitoring ideas are captured in `FUTURE_ROADMAP.md`.

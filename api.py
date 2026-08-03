@@ -15,7 +15,7 @@ from secrets import compare_digest
 from typing import Annotated, Any, Literal
 
 import pandas as pd
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, status as http_status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -24,6 +24,10 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from observability import configure_logging
 from api_contracts import (
+    BetJournalCreateRequest,
+    BetJournalDeleteResponse,
+    BetJournalEntryResponse,
+    BetJournalListResponse,
     DataQualityResponse,
     EntityProfileResponse,
     ErrorResponse,
@@ -45,6 +49,7 @@ from api_contracts import (
     SeedSampleResponse,
     SummaryResponse,
     TrendsResponse,
+    BetJournalUpdateRequest,
 )
 from prediction_model import (
     artifact_uri_to_path,
@@ -61,18 +66,22 @@ from race_enrichment import ENRICHMENT_COLUMNS, enrich_race_frame
 from racing_storage import (
     TABLES,
     approve_model_version,
+    delete_bet_journal_entry,
     ingestion_status,
     read_latest_approved_model_version,
+    read_bet_journal,
     read_model_version,
     read_model_registry,
     read_prediction_run,
     read_prediction_runs,
     read_races,
     provider_freshness_report,
+    record_bet_journal_entry,
     record_model_evaluation_snapshot,
     record_prediction_run,
     seed_database_from_samples,
     table_counts,
+    update_bet_journal_entry,
 )
 from settings import get_settings
 
@@ -101,7 +110,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=list(SETTINGS.backend_cors_origins),
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
     expose_headers=["X-Request-ID"],
 )
@@ -399,6 +408,12 @@ def build_page(meta: dict[str, int]) -> PageMeta:
     return PageMeta(**meta)
 
 
+def request_model_payload(model: Any) -> dict[str, Any]:
+    if hasattr(model, "model_dump"):
+        return model.model_dump(exclude_unset=True)
+    return model.dict(exclude_unset=True)
+
+
 def build_meetings(current_df: pd.DataFrame) -> pd.DataFrame:
     if current_df.empty:
         return pd.DataFrame(columns=["race_date", "track", "races", "runners", "first_distance", "last_distance"])
@@ -555,7 +570,7 @@ def safeguards() -> dict[str, Any]:
         ],
         "dataLicensingNotice": SETTINGS.data_license_reference
         or "Only display race-card, odds, and result data that the operator is licensed to use.",
-        "privacyNotice": "The current bet journal stores entries in browser local storage; do not enter personal data until account storage and a published privacy policy are configured.",
+        "privacyNotice": "The bet journal stores operator-local records in the configured server database; do not enter personal data until account auth, export/delete controls, and a published privacy policy are configured.",
         "termsNotice": "Production launch requires published terms of use and no guaranteed-profit claims in product or marketing copy.",
         "links": {
             "responsibleGambling": SETTINGS.responsible_gambling_url or None,
@@ -645,6 +660,47 @@ def prediction_run_detail(
     if not run:
         raise HTTPException(status_code=404, detail=f"Prediction run {prediction_run_id} was not found.")
     return {"requestId": request_id(), **run}
+
+
+@router.get("/bet-journal", response_model=BetJournalListResponse)
+def bet_journal(
+    status: Annotated[Literal["open", "won", "lost", "void"] | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict[str, Any]:
+    try:
+        journal = read_bet_journal(DATABASE_URL, status=status, limit=limit, offset=offset)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"requestId": request_id(), **journal}
+
+
+@router.post("/bet-journal", response_model=BetJournalEntryResponse, status_code=http_status.HTTP_201_CREATED)
+def create_bet(payload: BetJournalCreateRequest) -> dict[str, Any]:
+    try:
+        bet = record_bet_journal_entry(DATABASE_URL, request_model_payload(payload))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"requestId": request_id(), "bet": bet}
+
+
+@router.patch("/bet-journal/{bet_id}", response_model=BetJournalEntryResponse)
+def update_bet(bet_id: int, payload: BetJournalUpdateRequest) -> dict[str, Any]:
+    try:
+        bet = update_bet_journal_entry(DATABASE_URL, bet_id, request_model_payload(payload))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not bet:
+        raise HTTPException(status_code=404, detail=f"Bet journal entry {bet_id} was not found.")
+    return {"requestId": request_id(), "bet": bet}
+
+
+@router.delete("/bet-journal/{bet_id}", response_model=BetJournalDeleteResponse)
+def delete_bet(bet_id: int) -> dict[str, Any]:
+    deleted = delete_bet_journal_entry(DATABASE_URL, bet_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Bet journal entry {bet_id} was not found.")
+    return {"requestId": request_id(), "id": bet_id, "deleted": True}
 
 
 @router.get("/entities/{entity_type}/{name}", response_model=EntityProfileResponse)

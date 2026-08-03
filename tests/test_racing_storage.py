@@ -14,18 +14,22 @@ from prediction_model import build_feature_table, evaluate_model, save_model_art
 from racing_storage import (
     TABLES,
     approve_model_version,
+    delete_bet_journal_entry,
     ingestion_status,
     read_latest_approved_model_version,
+    read_bet_journal,
     read_model_registry,
     read_prediction_run,
     read_prediction_runs,
     read_races,
     provider_freshness_report,
+    record_bet_journal_entry,
     record_model_evaluation_snapshot,
     record_prediction_run,
     release_job_lock,
     table_counts,
     try_acquire_job_lock,
+    update_bet_journal_entry,
     write_races,
 )
 from settings import get_settings
@@ -137,6 +141,49 @@ class RacingStorageTests(unittest.TestCase):
             self.assertEqual(2, detail["page"]["returned"])
             self.assertEqual(len(scored), detail["page"]["total"])
 
+    def test_bet_journal_crud_uses_server_side_user_bets(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_url = _sqlite_url(Path(temp_dir) / "bets.db")
+
+            bet = record_bet_journal_entry(
+                database_url,
+                {
+                    "horse": "Golden Arrow",
+                    "track": "York",
+                    "raceDate": "2026-08-03",
+                    "stake": 10,
+                    "odds": 3.5,
+                    "notes": "phase 15 smoke",
+                },
+            )
+
+            self.assertEqual("Golden Arrow", bet["horse"])
+            self.assertEqual("open", bet["status"])
+            self.assertIsNone(bet["profitLoss"])
+
+            journal = read_bet_journal(database_url)
+
+            self.assertEqual(1, journal["page"]["total"])
+            self.assertEqual(bet["id"], journal["bets"][0]["id"])
+
+            updated = update_bet_journal_entry(
+                database_url,
+                bet["id"],
+                {"status": "won", "closingOdds": 3.1, "notes": "settled"},
+            )
+
+            self.assertIsNotNone(updated)
+            self.assertEqual("won", updated["status"])
+            self.assertAlmostEqual(25.0, updated["profitLoss"])
+            self.assertEqual(3.1, updated["closingOdds"])
+            self.assertIsNotNone(updated["settledAt"])
+
+            won_only = read_bet_journal(database_url, status="won")
+
+            self.assertEqual(1, won_only["page"]["total"])
+            self.assertTrue(delete_bet_journal_entry(database_url, bet["id"]))
+            self.assertEqual(0, read_bet_journal(database_url)["page"]["total"])
+
     def test_alembic_upgrade_and_downgrade_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             database_url = _sqlite_url(Path(temp_dir) / "migration.db")
@@ -154,11 +201,16 @@ class RacingStorageTests(unittest.TestCase):
                         inspector = inspect(conn)
                         table_names = set(inspector.get_table_names())
                         columns = {column["name"] for column in inspector.get_columns("model_versions")}
+                        bet_columns = {column["name"]: column for column in inspector.get_columns("user_bets")}
                 finally:
                     engine.dispose()
                 self.assertIn("races_current", table_names)
                 self.assertIn("model_evaluation_results", table_names)
                 self.assertIn("prediction_run_entries", table_names)
+                self.assertIn("account_key", bet_columns)
+                self.assertIn("horse", bet_columns)
+                self.assertIn("closing_odds_decimal", bet_columns)
+                self.assertTrue(bet_columns["race_entry_id"]["nullable"])
                 self.assertIn("artifact_sha256", columns)
                 self.assertIn("feature_schema_hash", columns)
                 self.assertIn("code_commit_sha", columns)

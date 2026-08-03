@@ -25,6 +25,9 @@ from race_enrichment import MODEL_ENRICHMENT_COLUMNS, distance_to_yards
 from schema import METADATA, NUMERIC_COLUMNS, RACE_COLUMNS, RACE_IDENTITY_COLUMNS, TABLES, VALID_TABLES
 from settings import resolve_database_url
 
+BET_STATUSES = {"open", "won", "lost", "void"}
+DEFAULT_BET_ACCOUNT_KEY = "local"
+
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(microsecond=0)
@@ -73,6 +76,15 @@ def _float_or_none(value) -> float | None:
     return numeric if isfinite(numeric) else None
 
 
+def _int_or_none(value) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _json_safe_value(value) -> Any:
     if value is None:
         return None
@@ -91,6 +103,62 @@ def _json_safe_value(value) -> Any:
     if isinstance(value, (float, int)):
         return value if isfinite(float(value)) else None
     return value
+
+
+def _payload_value(payload: dict[str, Any], *keys: str, default: Any = None) -> Any:
+    for key in keys:
+        if key in payload:
+            return payload[key]
+    return default
+
+
+def _payload_has(payload: dict[str, Any], *keys: str) -> bool:
+    return any(key in payload for key in keys)
+
+
+def _trim_text(value: Any, max_length: int | None = None) -> str | None:
+    if value is None:
+        return None
+    text_value = str(value).strip()
+    if not text_value:
+        return None
+    return text_value[:max_length] if max_length else text_value
+
+
+def _required_text(value: Any, field_name: str, max_length: int | None = None) -> str:
+    text_value = _trim_text(value, max_length=max_length)
+    if text_value is None:
+        raise ValueError(f"{field_name} is required.")
+    return text_value
+
+
+def _positive_number(value: Any, field_name: str, minimum: float = 0) -> float:
+    numeric = _float_or_none(value)
+    if numeric is None or numeric <= minimum:
+        raise ValueError(f"{field_name} must be greater than {minimum:g}.")
+    return numeric
+
+
+def _bet_status(value: Any, default: str = "open") -> str:
+    status = _trim_text(value, max_length=80) or default
+    status = status.lower()
+    if status not in BET_STATUSES:
+        raise ValueError(f"status must be one of: {', '.join(sorted(BET_STATUSES))}.")
+    return status
+
+
+def _bet_profit_loss(status: str, stake: float | None, odds_decimal: float | None) -> float | None:
+    if status == "open":
+        return None
+    if status == "void":
+        return 0.0
+    if stake is None:
+        return None
+    if status == "lost":
+        return -stake
+    if odds_decimal is None:
+        return None
+    return stake * (odds_decimal - 1)
 
 
 def get_engine(database_url: str | Path | None = None) -> Engine:
@@ -681,6 +749,211 @@ def read_prediction_run(
                 "entries": entries,
                 "page": {"limit": limit, "offset": offset, "returned": len(entries), "total": total},
             }
+    finally:
+        engine.dispose()
+
+
+def _bet_payload(row: dict[str, Any]) -> dict[str, Any]:
+    race_entry_id = row.get("race_entry_id")
+    horse = row.get("horse") or (f"Race entry #{race_entry_id}" if race_entry_id else "Unmatched runner")
+    return {
+        "id": int(row["id"]),
+        "accountKey": row.get("account_key") or DEFAULT_BET_ACCOUNT_KEY,
+        "raceEntryId": race_entry_id,
+        "predictionRunId": row.get("prediction_run_id"),
+        "predictionRunEntryId": row.get("prediction_run_entry_id"),
+        "modelVersionId": row.get("model_version_id"),
+        "horse": horse,
+        "track": row.get("track"),
+        "raceDate": _iso_value(row.get("race_date")),
+        "betType": row.get("bet_type"),
+        "stake": row.get("stake"),
+        "odds": row.get("odds_decimal"),
+        "closingOdds": row.get("closing_odds_decimal"),
+        "status": row.get("status"),
+        "createdAt": _iso_value(row.get("placed_at")),
+        "updatedAt": _iso_value(row.get("updated_at") or row.get("placed_at")),
+        "settledAt": _iso_value(row.get("settled_at")),
+        "profitLoss": row.get("profit_loss"),
+        "notes": row.get("notes"),
+    }
+
+
+def _bet_insert_record(payload: dict[str, Any], account_key: str, now: datetime) -> dict[str, Any]:
+    status = _bet_status(_payload_value(payload, "status"), default="open")
+    stake = _positive_number(_payload_value(payload, "stake"), "stake")
+    odds_decimal = _positive_number(_payload_value(payload, "odds", "oddsDecimal"), "odds", minimum=1)
+    settled_at = _as_utc_datetime(_payload_value(payload, "settledAt", "settled_at"))
+    if status != "open" and settled_at is None:
+        settled_at = now
+
+    return {
+        "account_key": _required_text(account_key, "account_key", max_length=120),
+        "race_entry_id": _int_or_none(_payload_value(payload, "raceEntryId", "race_entry_id")),
+        "prediction_run_id": _int_or_none(_payload_value(payload, "predictionRunId", "prediction_run_id")),
+        "prediction_run_entry_id": _int_or_none(_payload_value(payload, "predictionRunEntryId", "prediction_run_entry_id")),
+        "model_version_id": _int_or_none(_payload_value(payload, "modelVersionId", "model_version_id")),
+        "horse": _required_text(_payload_value(payload, "horse"), "horse", max_length=160),
+        "track": _trim_text(_payload_value(payload, "track"), max_length=120),
+        "race_date": _as_date(_payload_value(payload, "raceDate", "race_date")),
+        "bet_type": _trim_text(_payload_value(payload, "betType", "bet_type"), max_length=80) or "win",
+        "stake": stake,
+        "odds_decimal": odds_decimal,
+        "closing_odds_decimal": _positive_number(
+            _payload_value(payload, "closingOdds", "closing_odds_decimal"),
+            "closingOdds",
+            minimum=1,
+        )
+        if _payload_value(payload, "closingOdds", "closing_odds_decimal") is not None
+        else None,
+        "status": status,
+        "placed_at": _as_utc_datetime(_payload_value(payload, "createdAt", "placedAt", "placed_at")) or now,
+        "settled_at": settled_at,
+        "profit_loss": _bet_profit_loss(status, stake, odds_decimal),
+        "notes": _trim_text(_payload_value(payload, "notes"), max_length=2000),
+        "updated_at": now,
+    }
+
+
+def record_bet_journal_entry(
+    database_url: str | Path | None,
+    payload: dict[str, Any],
+    account_key: str = DEFAULT_BET_ACCOUNT_KEY,
+) -> dict[str, Any]:
+    init_db(database_url)
+    engine = get_engine(database_url)
+    bet_table = METADATA.tables["user_bets"]
+    now = utc_now()
+    record = _bet_insert_record(payload, account_key, now)
+
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(insert(bet_table), record)
+            bet_id = int(result.inserted_primary_key[0])
+            row = conn.execute(select(bet_table).where(bet_table.c.id == bet_id)).mappings().one()
+            return _bet_payload(dict(row))
+    finally:
+        engine.dispose()
+
+
+def read_bet_journal(
+    database_url: str | Path | None,
+    account_key: str = DEFAULT_BET_ACCOUNT_KEY,
+    status: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> dict[str, Any]:
+    init_db(database_url)
+    engine = get_engine(database_url)
+    bet_table = METADATA.tables["user_bets"]
+    filters = [bet_table.c.account_key == account_key]
+    if status:
+        filters.append(bet_table.c.status == _bet_status(status))
+
+    try:
+        with engine.connect() as conn:
+            total = int(conn.execute(select(func.count()).select_from(bet_table).where(*filters)).scalar_one())
+            rows = (
+                conn.execute(
+                    select(bet_table)
+                    .where(*filters)
+                    .order_by(bet_table.c.placed_at.desc(), bet_table.c.id.desc())
+                    .limit(limit)
+                    .offset(offset)
+                )
+                .mappings()
+                .all()
+            )
+            bets = [_bet_payload(dict(row)) for row in rows]
+            return {"bets": bets, "page": {"limit": limit, "offset": offset, "returned": len(bets), "total": total}}
+    finally:
+        engine.dispose()
+
+
+def update_bet_journal_entry(
+    database_url: str | Path | None,
+    bet_id: int,
+    payload: dict[str, Any],
+    account_key: str = DEFAULT_BET_ACCOUNT_KEY,
+) -> dict[str, Any] | None:
+    init_db(database_url)
+    engine = get_engine(database_url)
+    bet_table = METADATA.tables["user_bets"]
+    now = utc_now()
+
+    try:
+        with engine.begin() as conn:
+            existing = (
+                conn.execute(
+                    select(bet_table).where(bet_table.c.id == bet_id, bet_table.c.account_key == account_key)
+                )
+                .mappings()
+                .first()
+            )
+            if not existing:
+                return None
+
+            existing_record = dict(existing)
+            updates: dict[str, Any] = {}
+            if _payload_has(payload, "horse"):
+                updates["horse"] = _required_text(payload["horse"], "horse", max_length=160)
+            if _payload_has(payload, "track"):
+                updates["track"] = _trim_text(payload.get("track"), max_length=120)
+            if _payload_has(payload, "raceDate", "race_date"):
+                updates["race_date"] = _as_date(_payload_value(payload, "raceDate", "race_date"))
+            if _payload_has(payload, "betType", "bet_type"):
+                updates["bet_type"] = _trim_text(_payload_value(payload, "betType", "bet_type"), max_length=80) or "win"
+            if _payload_has(payload, "stake"):
+                updates["stake"] = _positive_number(payload["stake"], "stake")
+            if _payload_has(payload, "odds", "oddsDecimal"):
+                updates["odds_decimal"] = _positive_number(_payload_value(payload, "odds", "oddsDecimal"), "odds", minimum=1)
+            if _payload_has(payload, "closingOdds", "closing_odds_decimal"):
+                value = _payload_value(payload, "closingOdds", "closing_odds_decimal")
+                updates["closing_odds_decimal"] = None if value is None else _positive_number(value, "closingOdds", minimum=1)
+            if _payload_has(payload, "status"):
+                updates["status"] = _bet_status(payload["status"])
+            if _payload_has(payload, "settledAt", "settled_at"):
+                updates["settled_at"] = _as_utc_datetime(_payload_value(payload, "settledAt", "settled_at"))
+            if _payload_has(payload, "notes"):
+                updates["notes"] = _trim_text(payload.get("notes"), max_length=2000)
+            if _payload_has(payload, "raceEntryId", "race_entry_id"):
+                updates["race_entry_id"] = _int_or_none(_payload_value(payload, "raceEntryId", "race_entry_id"))
+            if _payload_has(payload, "predictionRunId", "prediction_run_id"):
+                updates["prediction_run_id"] = _int_or_none(_payload_value(payload, "predictionRunId", "prediction_run_id"))
+            if _payload_has(payload, "predictionRunEntryId", "prediction_run_entry_id"):
+                updates["prediction_run_entry_id"] = _int_or_none(_payload_value(payload, "predictionRunEntryId", "prediction_run_entry_id"))
+            if _payload_has(payload, "modelVersionId", "model_version_id"):
+                updates["model_version_id"] = _int_or_none(_payload_value(payload, "modelVersionId", "model_version_id"))
+
+            status = updates.get("status", existing_record["status"])
+            stake = updates.get("stake", existing_record["stake"])
+            odds_decimal = updates.get("odds_decimal", existing_record["odds_decimal"])
+            updates["profit_loss"] = _bet_profit_loss(status, stake, odds_decimal)
+            if status == "open":
+                updates["settled_at"] = None
+            elif "settled_at" not in updates and existing_record.get("settled_at") is None:
+                updates["settled_at"] = now
+            updates["updated_at"] = now
+
+            conn.execute(update(bet_table).where(bet_table.c.id == bet_id, bet_table.c.account_key == account_key).values(updates))
+            row = conn.execute(select(bet_table).where(bet_table.c.id == bet_id)).mappings().one()
+            return _bet_payload(dict(row))
+    finally:
+        engine.dispose()
+
+
+def delete_bet_journal_entry(
+    database_url: str | Path | None,
+    bet_id: int,
+    account_key: str = DEFAULT_BET_ACCOUNT_KEY,
+) -> bool:
+    init_db(database_url)
+    engine = get_engine(database_url)
+    bet_table = METADATA.tables["user_bets"]
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(delete(bet_table).where(bet_table.c.id == bet_id, bet_table.c.account_key == account_key))
+            return bool(result.rowcount)
     finally:
         engine.dispose()
 

@@ -13,10 +13,11 @@ Run all Python tests:
 The suite covers:
 
 - API contract shapes and filtering
+- server-side bet journal CRUD contracts
 - prediction-run snapshot persistence and API contracts
 - prediction leakage and chronological holdout behavior
 - provider fixture flattening and validation summaries
-- SQLite repository upsert behavior
+- SQLite repository upsert behavior and bet journal persistence
 - Alembic upgrade/downgrade roundtrip
 - sample data quality gates
 - enrichment coverage and course/weather URL checks
@@ -37,7 +38,7 @@ Run the production build:
 npm.cmd run build --prefix frontend
 ```
 
-The frontend tests cover browser-local bet journal math, draft validation, local-storage parsing, race-centre grouping, race-centre runner sorting, and transparent signal labels. UI coverage still relies on Vite build plus browser smoke checks until a dedicated component/e2e runner is introduced.
+The frontend tests cover bet journal math, server payload validation, local fallback parsing, race-centre grouping, race-centre runner sorting, and transparent signal labels. UI coverage still relies on Vite build plus browser smoke checks until a dedicated component/e2e runner is introduced.
 
 ## Browser Smoke
 

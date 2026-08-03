@@ -127,16 +127,22 @@ Goal: make the journal useful across devices and auditable for model feedback wi
 - Add user/account ownership before storing personal bet history.
 - Add settlement status, result linkage, closing odds, and notes.
 
+Current inspection: `/api/v1/bet-journal` now supports list, create, patch, and delete operations backed by `user_bets`. The table now supports operator-local ownership, manual horse/track/date context, nullable race-entry linkage, optional prediction-run/model links, closing odds, settlement status, notes, and server-computed profit/loss. Real user authentication and personal account ownership remain Phase 17 work.
+
 ### 15.2 Analytics
 
 - Compare recorded bets with model probability, market odds, and closing line where available.
 - Separate user performance, model performance, and market baseline.
 - Add drawdown and bankroll exposure views.
 
+Current inspection: the React Bet Journal reads server rows, records placed odds and optional closing odds, and keeps journal profit/ROI metrics separate from model-evaluation metrics. Model-vs-market-vs-user attribution, drawdown, and bankroll exposure remain future analytics work.
+
 ### 15.3 Safeguards
 
 - Add stake warnings and responsible-use reminders.
 - Add export/delete support for privacy and account control.
+
+Current inspection: the UI keeps server-backed journal records behind decision-support language, supports row deletion through the API, and falls back to browser storage if the local API is unavailable. Export controls, account-level privacy tools, and stake warnings remain future work.
 
 ## Phase 16: Monitoring And Drift
 
@@ -196,6 +202,6 @@ Goal: turn the current manual validation list into repeatable automation.
 
 ## Recommended Next Phase
 
-Start with Phase 15: Server-Side Bet Journal.
+Start with Phase 16: Monitoring And Drift.
 
-Reason: Phase 14 now gives the app a race-by-race operating centre. The next useful product step is moving the journal from browser-only storage into auditable server-side records that can link positions to prediction runs and settled results.
+Reason: Phase 15 now gives the app auditable server-side journal records. The next platform risk is knowing when provider freshness, model inputs, prediction distributions, or API behavior drift away from the conditions the approved model was evaluated under.

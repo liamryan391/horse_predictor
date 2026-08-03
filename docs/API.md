@@ -23,6 +23,7 @@ Core endpoints:
 - `GET /api/v1/predictions`
 - `GET /api/v1/prediction-runs`
 - `GET /api/v1/prediction-runs/{prediction_run_id}`
+- `GET /api/v1/bet-journal`
 - `GET /api/v1/entities/{entity_type}/{name}`
 - `GET /api/v1/model`
 - `GET /api/v1/model/evaluation`
@@ -30,7 +31,13 @@ Core endpoints:
 - `GET /api/v1/trends`
 - `GET /api/v1/ingestion-status`
 
-Administrative endpoint:
+Write endpoints:
+
+- `POST /api/v1/bet-journal`
+- `PATCH /api/v1/bet-journal/{bet_id}`
+- `DELETE /api/v1/bet-journal/{bet_id}`
+
+Administrative endpoints:
 
 - `POST /api/v1/admin/seed-sample`
 - `POST /api/v1/admin/model/evaluation`
@@ -140,3 +147,17 @@ The React Evaluation view displays this response beside model registry and predi
 `GET /api/v1/prediction-runs` lists persisted scoring snapshots, and `GET /api/v1/prediction-runs/{prediction_run_id}` returns the runner-level rows for one run.
 
 Use `POST /api/v1/admin/prediction-runs` to record the current scored race card after data import or model approval. Add `require_approved_model=true` when staging or production should reject snapshots that were not scored with the approved model artifact. See [PREDICTION_OPERATIONS.md](PREDICTION_OPERATIONS.md) for the run workflow.
+
+## Bet Journal
+
+`GET /api/v1/bet-journal` lists server-side journal rows from `user_bets`. The local app currently uses the operator-local account key, and future authentication should replace that with user-owned accounts before personal bet history is stored.
+
+Create, settle, and remove rows with:
+
+```powershell
+Invoke-WebRequest -Method POST -ContentType "application/json" -Body '{"horse":"Golden Arrow","track":"York","raceDate":"2026-08-03","stake":10,"odds":3.5,"status":"open"}' -UseBasicParsing "http://127.0.0.1:8000/api/v1/bet-journal"
+Invoke-WebRequest -Method PATCH -ContentType "application/json" -Body '{"status":"won","closingOdds":3.1}' -UseBasicParsing "http://127.0.0.1:8000/api/v1/bet-journal/1"
+Invoke-WebRequest -Method DELETE -UseBasicParsing "http://127.0.0.1:8000/api/v1/bet-journal/1"
+```
+
+Rows can store manual runner context, stake, placed odds, closing odds, settlement status, notes, and optional links to prediction runs, prediction-run entries, model versions, or normalized race entries.

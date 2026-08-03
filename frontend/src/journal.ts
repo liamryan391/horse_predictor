@@ -1,21 +1,42 @@
-export type BetStatus = "open" | "won" | "lost";
+export type BetStatus = "open" | "won" | "lost" | "void";
 
 export type Bet = {
-  id: string;
+  id: string | number;
+  accountKey?: string;
   createdAt: string;
+  updatedAt?: string | null;
+  settledAt?: string | null;
   horse: string;
-  track: string;
+  track: string | null;
+  raceDate?: string | null;
   stake: number;
   odds: number;
+  closingOdds?: number | null;
   status: BetStatus;
+  profitLoss?: number | null;
+  notes?: string | null;
 };
 
 export type BetDraft = {
   horse: string;
   track: string;
+  raceDate: string;
   stake: string;
   odds: string;
+  closingOdds: string;
   status: BetStatus;
+  notes: string;
+};
+
+export type BetPayload = {
+  horse: string;
+  track: string | null;
+  raceDate: string | null;
+  stake: number;
+  odds: number;
+  closingOdds?: number | null;
+  status: BetStatus;
+  notes: string | null;
 };
 
 export type JournalSummary = {
@@ -27,7 +48,9 @@ export type JournalSummary = {
 };
 
 export function betProfit(bet: Bet) {
+  if (typeof bet.profitLoss === "number" && bet.status !== "open") return bet.profitLoss;
   if (bet.status === "open") return 0;
+  if (bet.status === "void") return 0;
   return bet.status === "won" ? bet.stake * (bet.odds - 1) : -bet.stake;
 }
 
@@ -47,20 +70,54 @@ export function summarizeBets(bets: Bet[]): JournalSummary {
 }
 
 export function createBet(draft: BetDraft, id: string, createdAt: string): Bet | null {
-  const stake = Number(draft.stake);
-  const odds = Number(draft.odds);
-  if (!draft.horse.trim() || !Number.isFinite(stake) || !Number.isFinite(odds) || stake <= 0 || odds <= 1) {
+  const payload = betPayloadFromDraft(draft);
+  if (!payload) {
     return null;
   }
 
   return {
     id,
     createdAt,
-    horse: draft.horse.trim(),
-    track: draft.track.trim(),
+    updatedAt: createdAt,
+    horse: payload.horse,
+    track: payload.track,
+    raceDate: payload.raceDate,
+    stake: payload.stake,
+    odds: payload.odds,
+    closingOdds: payload.closingOdds ?? null,
+    status: payload.status,
+    notes: payload.notes
+  };
+}
+
+export function betPayloadFromDraft(draft: BetDraft): BetPayload | null {
+  const horse = draft.horse.trim();
+  const track = draft.track.trim();
+  const raceDate = draft.raceDate.trim();
+  const notes = draft.notes.trim();
+  const stake = Number(draft.stake);
+  const odds = Number(draft.odds);
+  const closingOdds = draft.closingOdds.trim() ? Number(draft.closingOdds) : null;
+  if (
+    !horse ||
+    !Number.isFinite(stake) ||
+    !Number.isFinite(odds) ||
+    stake <= 0 ||
+    odds <= 1 ||
+    (closingOdds !== null && (!Number.isFinite(closingOdds) || closingOdds <= 1))
+  ) {
+    return null;
+  }
+
+  return {
+    horse,
+    track: track || null,
+    raceDate: raceDate || null,
     stake,
     odds,
-    status: draft.status
+    closingOdds,
+    status: draft.status,
+    notes: notes || null
   };
 }
 
@@ -79,14 +136,14 @@ function isBet(value: unknown): value is Bet {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<Bet>;
   return (
-    typeof candidate.id === "string" &&
+    (typeof candidate.id === "string" || typeof candidate.id === "number") &&
     typeof candidate.createdAt === "string" &&
     typeof candidate.horse === "string" &&
-    typeof candidate.track === "string" &&
+    (candidate.track === null || typeof candidate.track === "string") &&
     typeof candidate.stake === "number" &&
     Number.isFinite(candidate.stake) &&
     typeof candidate.odds === "number" &&
     Number.isFinite(candidate.odds) &&
-    (candidate.status === "open" || candidate.status === "won" || candidate.status === "lost")
+    (candidate.status === "open" || candidate.status === "won" || candidate.status === "lost" || candidate.status === "void")
   );
 }

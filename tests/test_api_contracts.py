@@ -10,8 +10,13 @@ _TEMP_DIR = tempfile.TemporaryDirectory()
 os.environ["DATABASE_URL"] = f"sqlite:///{(Path(_TEMP_DIR.name) / 'api_contracts.db').as_posix()}"
 os.environ["MODEL_ARTIFACT_DIR"] = str(Path(_TEMP_DIR.name) / "artifacts")
 
-from api import SETTINGS, approve_model, capture_model_evaluation, capture_prediction_run, data_quality as api_data_quality, entity_profile, health, meetings, model_registry, model_status, normalize_request_id, prediction_run_detail, prediction_runs, predictions, race_card, ready, safeguards, summary
+from api import SETTINGS, approve_model, bet_journal, create_bet, delete_bet, capture_model_evaluation, capture_prediction_run, data_quality as api_data_quality, entity_profile, health, meetings, model_registry, model_status, normalize_request_id, prediction_run_detail, prediction_runs, predictions, race_card, ready, safeguards, summary, update_bet
 from api_contracts import (
+    BetJournalCreateRequest,
+    BetJournalDeleteResponse,
+    BetJournalEntryResponse,
+    BetJournalListResponse,
+    BetJournalUpdateRequest,
     DataQualityResponse,
     HealthResponse,
     ModelRegistryResponse,
@@ -102,6 +107,42 @@ class APIContractTests(unittest.TestCase):
         self.assertEqual(2, detail_response.page.returned)
         self.assertEqual(snapshot.run.runnerCount, detail_response.page.total)
         self.assertIsNotNone(snapshot.entries[0].win_probability)
+
+    def test_bet_journal_crud_exposes_server_side_contracts(self) -> None:
+        created = BetJournalEntryResponse(
+            **create_bet(
+                BetJournalCreateRequest(
+                    horse="Golden Arrow",
+                    track="York",
+                    raceDate="2026-08-03",
+                    stake=10,
+                    odds=3.5,
+                    notes="api-contract smoke",
+                )
+            )
+        )
+
+        self.assertEqual("Golden Arrow", created.bet.horse)
+        self.assertEqual("open", created.bet.status)
+        self.assertIsNone(created.bet.profitLoss)
+
+        listed = BetJournalListResponse(**bet_journal())
+
+        self.assertGreaterEqual(listed.page.total, 1)
+        self.assertEqual(created.bet.id, listed.bets[0].id)
+
+        updated = BetJournalEntryResponse(
+            **update_bet(created.bet.id, BetJournalUpdateRequest(status="won", closingOdds=3.1))
+        )
+
+        self.assertEqual("won", updated.bet.status)
+        self.assertAlmostEqual(25.0, updated.bet.profitLoss or 0)
+        self.assertIsNotNone(updated.bet.settledAt)
+
+        deleted = BetJournalDeleteResponse(**delete_bet(created.bet.id))
+
+        self.assertTrue(deleted.deleted)
+        self.assertEqual(created.bet.id, deleted.id)
 
     def test_request_id_sanitizer_rejects_unsafe_values(self) -> None:
         self.assertEqual("trace-123_:.ok", normalize_request_id("trace-123_:.ok"))

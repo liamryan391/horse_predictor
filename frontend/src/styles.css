@@ -737,10 +737,14 @@ td {
 
 .journal-form {
   display: grid;
-  grid-template-columns: repeat(5, minmax(120px, 1fr)) auto;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
   gap: 12px;
   align-items: end;
   padding: 16px;
+}
+
+.journal-form .notes-field {
+  grid-column: span 2;
 }
 
 .text-action {
@@ -810,6 +814,10 @@ td {
   .race-centre-layout,
   .journal-form {
     grid-template-columns: 1fr;
+  }
+
+  .journal-form .notes-field {
+    grid-column: auto;
   }
 
   .control-panel {

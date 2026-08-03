@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import {
   betProfit,
+  betPayloadFromDraft,
   createBet,
   parseStoredBets,
   summarizeBets,
@@ -240,6 +241,23 @@ type DataQuality = {
   providerFreshness: ProviderFreshness[];
 };
 
+type BetJournalListResponse = {
+  requestId: string;
+  bets: Bet[];
+  page: PageMeta;
+};
+
+type BetJournalEntryResponse = {
+  requestId: string;
+  bet: Bet;
+};
+
+type BetJournalDeleteResponse = {
+  requestId: string;
+  id: number;
+  deleted: boolean;
+};
+
 type ProductSafeguards = {
   requestId: string;
   responsibleUseNotice: string;
@@ -281,7 +299,7 @@ const DEFAULT_SAFEGUARDS: ProductSafeguards = {
   ],
   dataLicensingNotice: "Only display race-card, odds, and result data that the operator is licensed to use.",
   privacyNotice:
-    "The current bet journal stores entries in browser local storage; do not enter personal data until account storage and a published privacy policy are configured.",
+    "The bet journal stores operator-local records in the configured server database; do not enter personal data until account auth, export/delete controls, and a published privacy policy are configured.",
   termsNotice: "Production launch requires published terms of use and no guaranteed-profit claims in product or marketing copy.",
   links: {}
 };
@@ -329,7 +347,27 @@ function localStorageValue(key: string, fallback: string) {
 }
 
 async function apiGet<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${API_PREFIX}${path}`);
+  return apiRequest<T>(path);
+}
+
+async function apiPost<T>(path: string, body: unknown): Promise<T> {
+  return apiRequest<T>(path, { method: "POST", body: JSON.stringify(body) });
+}
+
+async function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  return apiRequest<T>(path, { method: "PATCH", body: JSON.stringify(body) });
+}
+
+async function apiDelete<T>(path: string): Promise<T> {
+  return apiRequest<T>(path, { method: "DELETE" });
+}
+
+async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  if (init.body && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  const response = await fetch(`${API_BASE_URL}${API_PREFIX}${path}`, { ...init, headers });
   if (!response.ok) {
     const detail = await response.text();
     let message = detail || `Request failed: ${response.status}`;
@@ -1308,36 +1346,113 @@ function EmptyState({ title, detail }: { title: string; detail: string }) {
 }
 
 function BetJournal() {
-  const [bets, setBets] = useState<Bet[]>(() => parseStoredBets(localStorage.getItem(BETS_KEY)));
+  const [bets, setBets] = useState<Bet[]>(() => parseStoredBets(localStorageValue(BETS_KEY, "[]")));
   const [draft, setDraft] = useState({
     horse: "",
     track: "",
+    raceDate: "",
     stake: "10",
     odds: "3.00",
-    status: "open" as BetStatus
+    closingOdds: "",
+    status: "open" as BetStatus,
+    notes: ""
   });
+  const [journalMode, setJournalMode] = useState<"server" | "local">("local");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    localStorage.setItem(BETS_KEY, JSON.stringify(bets));
+    void loadJournal();
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(BETS_KEY, JSON.stringify(bets));
+    } catch {
+      // The server is authoritative once available; local storage is only a convenience cache.
+    }
   }, [bets]);
 
   const journal = useMemo(() => summarizeBets(bets), [bets]);
 
-  function submitBet(event: FormEvent) {
+  async function loadJournal() {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await apiGet<BetJournalListResponse>("/bet-journal?limit=200");
+      setBets(response.bets);
+      setJournalMode("server");
+    } catch (err) {
+      setJournalMode("local");
+      setBets((current) => (current.length > 0 ? current : parseStoredBets(localStorageValue(BETS_KEY, "[]"))));
+      setError(err instanceof Error ? err.message : "Unable to load server bet journal.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function addLocalBet() {
+    const fallbackBet = createBet(draft, crypto.randomUUID(), new Date().toISOString());
+    if (!fallbackBet) {
+      return false;
+    }
+    setBets((current) => [fallbackBet, ...current]);
+    return true;
+  }
+
+  async function submitBet(event: FormEvent) {
     event.preventDefault();
-    const nextBet = createBet(draft, crypto.randomUUID(), new Date().toISOString());
-    if (!nextBet) {
+    const payload = betPayloadFromDraft(draft);
+    if (!payload) {
       return;
     }
-    setBets((current) => [nextBet, ...current]);
-    setDraft({ horse: "", track: "", stake: "10", odds: "3.00", status: "open" });
+    setSaving(true);
+    setError(null);
+    try {
+      if (journalMode === "server") {
+        const response = await apiPost<BetJournalEntryResponse>("/bet-journal", payload);
+        setBets((current) => [response.bet, ...current.filter((bet) => bet.id !== response.bet.id)]);
+      } else if (!addLocalBet()) {
+        return;
+      }
+      setDraft({ horse: "", track: "", raceDate: "", stake: "10", odds: "3.00", closingOdds: "", status: "open", notes: "" });
+    } catch (err) {
+      if (addLocalBet()) {
+        setJournalMode("local");
+        setDraft({ horse: "", track: "", raceDate: "", stake: "10", odds: "3.00", closingOdds: "", status: "open", notes: "" });
+      }
+      setError(err instanceof Error ? `Saved locally while the server journal is unavailable: ${err.message}` : "Saved locally while the server journal is unavailable.");
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function updateStatus(id: string, status: BetStatus) {
-    setBets((current) => current.map((bet) => (bet.id === id ? { ...bet, status } : bet)));
+  async function updateStatus(id: Bet["id"], status: BetStatus) {
+    if (journalMode === "server" && typeof id === "number") {
+      setError(null);
+      try {
+        const response = await apiPatch<BetJournalEntryResponse>(`/bet-journal/${id}`, { status });
+        setBets((current) => current.map((bet) => (bet.id === id ? response.bet : bet)));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unable to update bet status.");
+      }
+      return;
+    }
+    setBets((current) => current.map((bet) => (bet.id === id ? { ...bet, status, updatedAt: new Date().toISOString() } : bet)));
   }
 
-  function removeBet(id: string) {
+  async function removeBet(id: Bet["id"]) {
+    if (journalMode === "server" && typeof id === "number") {
+      setError(null);
+      try {
+        await apiDelete<BetJournalDeleteResponse>(`/bet-journal/${id}`);
+        setBets((current) => current.filter((bet) => bet.id !== id));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unable to remove bet.");
+      }
+      return;
+    }
     setBets((current) => current.filter((bet) => bet.id !== id));
   }
 
@@ -1349,7 +1464,22 @@ function BetJournal() {
           <h1>Position ledger</h1>
           <p>Track open and settled positions separately from model performance.</p>
         </div>
+        <button className="icon-action" onClick={() => void loadJournal()} disabled={loading} title="Refresh journal">
+          <RefreshCw size={18} />
+          Refresh
+        </button>
       </div>
+
+      {error && (
+        <div className="error-banner">
+          <strong>{journalMode === "server" ? "Journal error" : "Local fallback"}</strong>
+          <span>{error}</span>
+          <button className="icon-action" onClick={() => void loadJournal()}>
+            <RefreshCw size={16} />
+            Retry
+          </button>
+        </div>
+      )}
 
       <div className="metric-row">
         <Metric label="Recorded bets" value={formatInteger(journal.count)} />
@@ -1357,9 +1487,10 @@ function BetJournal() {
         <Metric label="Total staked" value={formatNumber(journal.staked)} />
         <Metric label="Settled profit" value={formatSignedNumber(journal.profit)} />
         <Metric label="Settled ROI" value={formatPercent(journal.roi)} />
+        <Metric label="Storage" value={journalMode === "server" ? "Server" : "Local"} />
       </div>
 
-      <form className="journal-form" onSubmit={submitBet}>
+      <form className="journal-form" onSubmit={(event) => void submitBet(event)}>
         <label>
           Horse
           <input value={draft.horse} onChange={(event) => setDraft({ ...draft, horse: event.target.value })} />
@@ -1367,6 +1498,10 @@ function BetJournal() {
         <label>
           Track
           <input value={draft.track} onChange={(event) => setDraft({ ...draft, track: event.target.value })} />
+        </label>
+        <label>
+          Race date
+          <input type="date" value={draft.raceDate} onChange={(event) => setDraft({ ...draft, raceDate: event.target.value })} />
         </label>
         <label>
           Stake
@@ -1377,16 +1512,25 @@ function BetJournal() {
           <input type="number" min="1.01" step="0.01" value={draft.odds} onChange={(event) => setDraft({ ...draft, odds: event.target.value })} />
         </label>
         <label>
+          Closing odds
+          <input type="number" min="1.01" step="0.01" value={draft.closingOdds} onChange={(event) => setDraft({ ...draft, closingOdds: event.target.value })} />
+        </label>
+        <label>
           Status
           <select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as BetStatus })}>
             <option value="open">Open</option>
             <option value="won">Won</option>
             <option value="lost">Lost</option>
+            <option value="void">Void</option>
           </select>
         </label>
-        <button className="primary-action" type="submit">
+        <label className="notes-field">
+          Notes
+          <input value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} />
+        </label>
+        <button className="primary-action" type="submit" disabled={saving}>
           <WalletCards size={18} />
-          Add bet
+          {saving ? "Saving" : "Add bet"}
         </button>
       </form>
 
@@ -1396,36 +1540,50 @@ function BetJournal() {
             <tr>
               <th>Horse</th>
               <th>Track</th>
+              <th>Race date</th>
               <th>Stake</th>
               <th>Odds</th>
+              <th>Close</th>
               <th>Status</th>
               <th>Profit</th>
               <th>Date</th>
+              <th>Notes</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {bets.map((bet) => (
+            {loading && (
+              <tr>
+                <td colSpan={11}>
+                  <div className="table-skeleton">Loading journal rows.</div>
+                </td>
+              </tr>
+            )}
+            {!loading && bets.map((bet) => (
               <tr key={bet.id}>
                 <td>
                   <strong>{bet.horse}</strong>
                 </td>
                 <td>{bet.track || "-"}</td>
+                <td>{formatDate(bet.raceDate)}</td>
                 <td>{formatNumber(bet.stake)}</td>
                 <td>{formatNumber(bet.odds)}</td>
+                <td>{formatNumber(bet.closingOdds)}</td>
                 <td>
-                  <select value={bet.status} onChange={(event) => updateStatus(bet.id, event.target.value as BetStatus)}>
+                  <select value={bet.status} onChange={(event) => void updateStatus(bet.id, event.target.value as BetStatus)}>
                     <option value="open">Open</option>
                     <option value="won">Won</option>
                     <option value="lost">Lost</option>
+                    <option value="void">Void</option>
                   </select>
                 </td>
                 <td className={betProfit(bet) >= 0 ? "positive" : "negative"}>{bet.status === "open" ? "-" : formatSignedNumber(betProfit(bet))}</td>
                 <td>{formatDate(bet.createdAt)}</td>
+                <td>{bet.notes || "-"}</td>
                 <td>
                   <button
                     className="icon-action square-action danger-action"
-                    onClick={() => removeBet(bet.id)}
+                    onClick={() => void removeBet(bet.id)}
                     title="Remove bet"
                     aria-label={`Remove ${bet.horse} from bet journal`}
                   >
@@ -1434,9 +1592,9 @@ function BetJournal() {
                 </td>
               </tr>
             ))}
-            {bets.length === 0 && (
+            {!loading && bets.length === 0 && (
               <tr>
-                <td colSpan={8}>No journal rows yet.</td>
+                <td colSpan={11}>No journal rows yet.</td>
               </tr>
             )}
           </tbody>

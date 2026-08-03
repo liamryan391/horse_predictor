@@ -76,12 +76,12 @@ Future ideas:
 
 ## Bet Journal And User Accounts
 
-The journal becomes much more useful when it is server-side, private, and linked to settled results.
+The journal becomes much more useful when server-side records are private, account-owned, and linked to settled results.
 
 Future ideas:
 
 - Add accounts and roles before storing personal bet history.
-- Add server-side bet journal tables with export and delete controls.
+- Add account-scoped export and delete controls for journal history.
 - Link journal rows to prediction runs, model versions, market odds, and final results.
 - Add user-level performance analytics, bankroll exposure, drawdown, and closing-line comparison.
 - Add responsible-use controls such as stake reminders, cool-off copy, and configurable risk limits.
@@ -146,7 +146,7 @@ The strongest future investments are:
 1. Better data depth with clear licensing.
 2. Managed artifact storage, champion comparison, and scheduled retraining.
 3. Race detail UX with transparent runner explanations.
-4. Server-side journal linked to prediction runs and results.
+4. Account-backed journal analytics linked to prediction runs and results.
 5. Monitoring for data freshness, drift, and model-quality regression.
 
 These ideas should stay behind `ROADMAP02.md` until Phase 12 through Phase 18 have made the platform stable enough to support them.
