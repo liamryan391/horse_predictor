@@ -2,6 +2,20 @@
 
 This guide proves that Horse Predictor can move from provider data to database rows, API responses, model scoring, and the frontend workspace.
 
+## Current Authenticated Result
+
+The August 3, 2026 authenticated provider check confirmed:
+
+- OurHub credentials work for live race-card data.
+- The redacted provider smoke check passes for OurHub without printing secrets.
+- OurHub imported 508 current runners for 7 tracks into a fresh SQLite check database.
+- OurHub track labels now normalize to course names instead of full race labels.
+- API health, meetings, track filtering, race-card rows, prediction rows, data quality, and provider freshness worked against the live OurHub import.
+- The Racing API credentials work for `/v1/courses`, but the current account plan does not allow `/v1/racecards` or `/v1/results`.
+- OurHub does not currently provide odds or owner fields through the mapped feed, so value-edge calculations remain unavailable until an odds source is added.
+
+See [LIVE_PROVIDER_CHECK_2026-08-03.md](LIVE_PROVIDER_CHECK_2026-08-03.md) for the exact local check evidence.
+
 ## Current Pre-Merge Result
 
 The August 3, 2026 local release check confirmed:
@@ -15,7 +29,7 @@ The August 3, 2026 local release check confirmed:
 - the API reads those rows, finds York as the meeting track, returns the York race card, returns zero rows for a fake track, and produces ranked predictions
 - local production-readiness and release-record checks pass against the running app when stale sample data is allowed
 
-A full authenticated live race-card import still needs valid provider credentials.
+The first unauthenticated check is kept here as historical context. The later authenticated check above supersedes the old credential status.
 
 ## Provider Credentials
 
@@ -62,6 +76,39 @@ The generic adapter expects:
 
 - `GET /historical-races`
 - `GET /current-races?days_ahead=<n>`
+
+Built-in providers use their official API hosts by default, so a stray `HORSE_API_BASE_URL` will not redirect `ourhub` or `theracingapi` traffic. Use `HORSE_API_BASE_URL` for `generic` providers only.
+
+## Provider Smoke Certification
+
+Run the redacted smoke command before a live import. It reports endpoint status, row counts, coverage, validation issues, and pass/fail criteria without printing credential values.
+
+OurHub:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\provider-smoke-check.py --provider ourhub --days-ahead 0 --timeout-seconds 20 --retry-attempts 1 --min-request-interval-seconds 0.25
+```
+
+Expected current result:
+
+- `course_info` and `runner_info` return HTTP 200
+- current rows are greater than zero
+- track, distance, surface, horse, jockey, and trainer coverage pass
+- odds and owner may be missing on the current OurHub feed
+
+The Racing API:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\provider-smoke-check.py --provider theracingapi --history-start 2026-08-01 --history-end 2026-08-03 --timeout-seconds 20 --retry-attempts 1 --max-pages 1 --allow-failure
+```
+
+Expected current result on the free account:
+
+- `/v1/courses` returns HTTP 200
+- `/v1/racecards` reports `Basic Plan required`
+- `/v1/results` reports `Standard Plan required`
+
+Use `--allow-base-url-override --base-url <url>` only when intentionally testing a proxy, staging copy, or mock server for a built-in provider.
 
 ## Fresh Live-Check Database
 
@@ -152,12 +199,12 @@ Open `http://127.0.0.1:5173`, then check:
 - Race Card shows imported track rows
 - Evaluation shows model metrics and data quality
 - Monitoring shows freshness, alerts, drift, and provider status
-- Admin loads with a valid `API_AUTH_TOKEN`
+- Admin loads with a valid admin-capable `ACCOUNT_AUTH_TOKEN`
 
 When `agent-browser` is healthy:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\visual-smoke-check.py --base-url http://127.0.0.1:5173 --require-admin --admin-token $env:API_AUTH_TOKEN --verbose
+.\.venv\Scripts\python.exe scripts\visual-smoke-check.py --base-url http://127.0.0.1:5173 --require-admin --admin-token $env:ACCOUNT_AUTH_TOKEN --verbose
 ```
 
 If `agent-browser` cannot open the page and reports a daemon connection timeout, run:
@@ -174,16 +221,19 @@ If the daemon still hangs, restart the terminal or Codex Desktop, then rerun the
 After a live provider import, run:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\production-readiness-check.py --base-url http://127.0.0.1:8000 --require-approved-model --require-approved-artifact --require-prediction-run --require-monitoring --require-admin-governance --admin-token $env:API_AUTH_TOKEN
-.\.venv\Scripts\python.exe scripts\release-record.py --base-url http://127.0.0.1:8000 --admin-token $env:API_AUTH_TOKEN --output release-records/local-live-release-record.json
+.\.venv\Scripts\python.exe scripts\production-readiness-check.py --base-url http://127.0.0.1:8000 --require-approved-model --require-approved-artifact --require-prediction-run --require-monitoring --require-admin-governance --admin-token $env:ACCOUNT_AUTH_TOKEN
+.\.venv\Scripts\python.exe scripts\release-record.py --base-url http://127.0.0.1:8000 --admin-token $env:ACCOUNT_AUTH_TOKEN --output release-records/local-live-release-record.json
 ```
 
 Add `--allow-stale` only for local sample data or a rehearsal where freshness is intentionally not release-blocking.
 
 ## Known Live-Provider Gaps
 
-- The app currently supports OurHub and The Racing API, but this machine does not yet have credentials configured.
-- OurHub currently imports current race-card rows only; historical depth still needs sample data, The Racing API, or another results provider.
-- The flat upsert key should be replaced with stable provider race and runner IDs before production import volume increases.
+- The app currently supports OurHub and The Racing API, and local credentials are present in `.env`.
+- `scripts/provider-smoke-check.py` is the standard no-secret provider gate before live imports.
+- OurHub currently imports current race-card rows only; historical depth still needs sample data, The Racing API Standard Plan, or another results provider.
+- OurHub does not currently provide mapped odds or owner fields, so market-implied probability and value edge are unavailable for OurHub-only cards.
+- The Racing API current credentials can access `/v1/courses`, but racecards require Basic Plan and results require Standard Plan.
+- The flat compatibility upsert key still serves current API/model reads; Phase 21 mirrors rows into normalized tables with synthetic provider IDs until official provider race and runner IDs are available.
 - The frontend track filter depends on normalized provider course names; provider aliases should be mapped during Roadmap03.
 - Browser automation is useful, but the local `agent-browser` daemon can still hang and should not be the only release signal until it is stable.

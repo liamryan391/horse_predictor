@@ -13,6 +13,13 @@ Supported providers:
 
 Provider logic lives in `provider_adapters.py`.
 
+Built-in provider adapters pin themselves to their official API hosts:
+
+- OurHub: `https://api.ourhub.site/api`
+- The Racing API: `https://api.theracingapi.com`
+
+This prevents a stale `HORSE_API_BASE_URL` from accidentally routing built-in provider calls to the wrong service. Use `HORSE_API_BASE_URL` with the `generic` provider, or pass `--allow-base-url-override` to `scripts/provider-smoke-check.py` only when intentionally testing a proxy or mock service.
+
 ## Reliability Controls
 
 All remote providers support:
@@ -58,6 +65,42 @@ The validator records warnings for prediction-useful fields that are missing or 
 - `odds`
 
 Validation summaries are written into ingestion-run messages when rows are saved.
+
+## Raw Payload Cache
+
+Phase 20 adds opt-in raw provider payload caching for local broker replay and mapping review:
+
+```powershell
+.\.venv\Scripts\python.exe data_pipeline.py --provider ourhub --days-ahead 0 --no-csv --disable-lock --cache-raw-payloads
+```
+
+Cached payloads are written under `BROKER_RAW_CACHE_DIR` as JSON envelopes with provider, resource, endpoint, source URL, fetched timestamp, row count, payload hash, and licensing note. Do not enable this for sources whose terms do not allow local payload storage.
+
+See [LOCAL_DATA_BROKER.md](LOCAL_DATA_BROKER.md) for broker API endpoints and local AI review checks.
+
+## Normalized Entity Sync
+
+Phase 21 syncs compatibility rows into normalized provider entity tables after `data_pipeline.py` writes historical or current rows. This keeps the current API/model path stable while giving operators an auditable provider-entity view.
+
+Default pipeline behavior:
+
+```powershell
+.\.venv\Scripts\python.exe data_pipeline.py --provider sample
+```
+
+Skip normalized sync only for isolated debugging:
+
+```powershell
+.\.venv\Scripts\python.exe data_pipeline.py --provider sample --skip-normalized-sync
+```
+
+Run a manual normalized backfill/check against an existing DB:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\normalized-backfill-check.py --database-url horse_racing.db --source sample
+```
+
+The sync creates deterministic synthetic provider IDs until a provider supplies official race, runner, horse, jockey, trainer, owner, and odds IDs.
 
 ## Enrichment
 

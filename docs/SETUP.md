@@ -36,6 +36,7 @@ Important settings:
 - `BACKEND_CORS_ORIGINS`: comma-separated frontend origins allowed by FastAPI.
 - `VITE_API_BASE_URL`: frontend API base URL for deployed builds.
 - `HORSE_API_PROVIDER`: `sample`, `generic`, `theracingapi`, or `ourhub`.
+- `ACCOUNT_AUTH_ENABLED`: defaults to `true`; named account tokens are preferred for admin and journal routes.
 - `MODEL_ARTIFACT_DIR`: where admin model snapshots write serialized serving artifacts.
 - `REQUIRE_APPROVED_MODEL_ARTIFACT`: set to `true` in staging/production so prediction serving requires a loadable approved artifact.
 
@@ -86,6 +87,14 @@ python -m venv .venv
 ```
 
 Do the sample seed before live provider imports. It proves migrations, database writes, API reads, and model scoring without depending on paid provider credentials.
+
+Optional named local admin account:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\account-smoke-check.py --database-url horse_racing.db --account-key liam --display-name "Liam" --roles admin,journal --token "replace-with-a-long-local-token" --privacy-acknowledged
+```
+
+Use the same token as a bearer token in the Admin Console or API calls. If no auth tokens are configured in local development, the backend still falls back to `local-dev`.
 
 Frontend setup:
 

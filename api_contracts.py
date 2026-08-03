@@ -473,15 +473,141 @@ class IngestionStatusResponse(BaseModel):
     page: PageMeta
 
 
-class AdminSessionResponse(BaseModel):
+class BrokerRawPayloadRow(BaseModel):
+    provider: str
+    resource: str
+    path: str
+    payloadSha256: str
+    fetchedAt: str | None = None
+    endpoint: str | None = None
+    sourceUrl: str | None = None
+    rowCount: int
+    licenseReference: str | None = None
+
+
+class BrokerStatusResponse(BaseModel):
+    requestId: str
+    cacheDir: str
+    rawPayloadCount: int
+    providers: Dict[str, int]
+    resources: Dict[str, int]
+    latestFetchedAt: str | None = None
+    ai: Dict[str, Any]
+
+
+class BrokerRawPayloadsResponse(BaseModel):
+    requestId: str
+    payloads: List[BrokerRawPayloadRow]
+    page: PageMeta
+
+
+class BrokerPayloadShapeResponse(BaseModel):
+    requestId: str
+    metadata: Dict[str, Any]
+    shape: Dict[str, Any]
+    ai: Dict[str, Any] | None = None
+
+
+class NormalizedTableCount(BaseModel):
+    tableName: str
+    rows: int
+
+
+class NormalizedStatusResponse(BaseModel):
+    requestId: str
+    tables: List[NormalizedTableCount]
+
+
+class NormalizedRaceEntry(BaseModel):
+    raceEntryId: int
+    raceId: int
+    meetingId: int | None = None
+    provider: str
+    providerEntryId: str | None = None
+    providerRaceId: str | None = None
+    providerCourseId: str | None = None
+    providerHorseId: str | None = None
+    track: str | None = None
+    country: str | None = None
+    raceDate: str | None = None
+    offTime: str | None = None
+    distance: float | None = None
+    surface: str | None = None
+    going: str | None = None
+    horse: str | None = None
+    jockey: str | None = None
+    trainer: str | None = None
+    owner: str | None = None
+    draw: float | None = None
+    horseAge: float | None = None
+    horseWeight: float | None = None
+    speedRating: float | None = None
+    classRating: float | None = None
+    daysSinceLastRun: float | None = None
+    odds: float | None = None
+    oddsCapturedAt: str | None = None
+    finishingPosition: float | None = None
+    resultStatus: str | None = None
+
+
+class NormalizedRaceEntriesResponse(BaseModel):
+    requestId: str
+    entries: List[NormalizedRaceEntry]
+    page: PageMeta
+
+
+class AccountSessionResponse(BaseModel):
     requestId: str
     actor: str
+    accountKey: str
+    accountId: int | None = None
     roles: List[str]
+    authMode: str
     environment: str
+    accountAuthEnabled: bool
     adminAuthRequired: bool
     journalAuthRequired: bool
     adminTokenConfigured: bool
     journalTokenConfigured: bool
+
+
+class AdminSessionResponse(AccountSessionResponse):
+    pass
+
+
+class OperatorAccount(BaseModel):
+    id: int
+    accountKey: str
+    displayName: str
+    email: str | None = None
+    roles: List[str]
+    status: str
+    tokenConfigured: bool
+    privacyAcknowledgedAt: str | None = None
+    lastAuthenticatedAt: str | None = None
+    createdAt: str | None = None
+    updatedAt: str | None = None
+
+
+class OperatorAccountUpsertRequest(BaseModel):
+    accountKey: str = Field(min_length=1, max_length=120)
+    displayName: str = Field(min_length=1, max_length=160)
+    email: str | None = Field(default=None, max_length=254)
+    roles: List[str] = Field(default_factory=lambda: ["viewer"])
+    token: str | None = Field(default=None, min_length=16, max_length=512)
+    status: str = "active"
+    privacyAcknowledged: bool = False
+
+
+class OperatorAccountResponse(BaseModel):
+    requestId: str
+    account: OperatorAccount
+
+
+class OperatorAccountListResponse(BaseModel):
+    requestId: str
+    accounts: List[OperatorAccount]
+    page: PageMeta
 
 
 class AdminAuditEvent(BaseModel):

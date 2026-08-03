@@ -35,6 +35,7 @@ def request_json(
     if token:
         headers["Authorization"] = f"Bearer {token}"
     if actor:
+        headers["X-Account-Actor"] = actor
         headers["X-Admin-Actor"] = actor
         headers["X-Journal-Actor"] = actor
     request = urllib.request.Request(f"{base_url}{path}", headers=headers)
@@ -162,7 +163,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Write a Horse Predictor release evidence record.")
     parser.add_argument("--base-url", default=os.getenv("API_BASE_URL", "http://127.0.0.1:8000"))
     parser.add_argument("--timeout", type=float, default=10.0)
-    parser.add_argument("--admin-token", default=os.getenv("API_AUTH_TOKEN", ""))
+    parser.add_argument("--admin-token", default=os.getenv("ACCOUNT_AUTH_TOKEN") or os.getenv("API_AUTH_TOKEN", ""))
     parser.add_argument("--admin-actor", default=os.getenv("ADMIN_ACTOR", "release-record"))
     parser.add_argument("--output", help="Optional path to write the release record JSON.")
     return parser.parse_args(argv)

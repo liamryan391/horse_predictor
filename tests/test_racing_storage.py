@@ -14,21 +14,28 @@ from prediction_model import build_feature_table, evaluate_model, save_model_art
 from racing_storage import (
     TABLES,
     approve_model_version,
+    create_or_update_operator_account,
     delete_bet_journal_entry,
     ingestion_status,
+    normalize_account_roles,
     read_latest_approved_model_version,
     read_admin_audit_events,
     read_bet_journal,
     read_model_registry,
+    read_normalized_race_entries,
+    read_operator_account_by_token,
+    read_operator_accounts,
     read_prediction_run,
     read_prediction_runs,
     read_races,
+    normalized_table_counts,
     provider_freshness_report,
     record_bet_journal_entry,
     record_admin_audit_event,
     record_model_evaluation_snapshot,
     record_prediction_run,
     release_job_lock,
+    sync_normalized_from_compatibility,
     table_counts,
     try_acquire_job_lock,
     update_model_version_status,
@@ -62,6 +69,59 @@ class RacingStorageTests(unittest.TestCase):
             self.assertEqual("success", freshness[0]["status"])
             self.assertEqual(TABLES["current"], freshness[0]["tableName"])
 
+    def test_normalized_sync_populates_provider_entity_tables(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_url = _sqlite_url(Path(temp_dir) / "normalized.db")
+            historical = pd.DataFrame(
+                [
+                    {
+                        "race_date": "2026-08-01",
+                        "track": "York",
+                        "distance": 1760,
+                        "surface": "Good",
+                        "horse": "Stable One",
+                        "jockey": "A. Local",
+                        "owner": "Local Owner",
+                        "trainer": "T. Trainer",
+                        "odds": 4.5,
+                        "finishing_position": 1,
+                        "draw": 3,
+                    }
+                ]
+            )
+            current = pd.DataFrame(
+                [
+                    {
+                        "race_date": "2026-08-03",
+                        "track": "York",
+                        "distance": 1760,
+                        "surface": "Good",
+                        "horse": "Stable Two",
+                        "jockey": "B. Local",
+                        "owner": "Local Owner",
+                        "trainer": "T. Trainer",
+                        "odds": 5.0,
+                        "draw": 4,
+                    }
+                ]
+            )
+
+            write_races(database_url, TABLES["historical"], historical, source="phase21", replace=True)
+            write_races(database_url, TABLES["current"], current, source="phase21", replace=True)
+            sync_counts = sync_normalized_from_compatibility(database_url, source="phase21")
+            counts = normalized_table_counts(database_url)
+            entries = read_normalized_race_entries(database_url, provider="phase21", track="York")
+
+            self.assertEqual(2, sync_counts["raceEntries"])
+            self.assertEqual(1, counts["courses"])
+            self.assertEqual(2, counts["races"])
+            self.assertEqual(2, counts["race_entries"])
+            self.assertEqual(1, counts["historical_results"])
+            self.assertEqual(2, counts["odds_snapshots"])
+            self.assertEqual(2, entries["page"]["total"])
+            self.assertTrue(all(entry["providerEntryId"].startswith("synthetic:") for entry in entries["entries"]))
+            self.assertEqual(1.0, entries["entries"][0]["finishingPosition"])
+
     def test_job_lock_prevents_duplicate_ingestion_runs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             database_url = _sqlite_url(Path(temp_dir) / "locks.db")
@@ -71,6 +131,39 @@ class RacingStorageTests(unittest.TestCase):
             self.assertFalse(release_job_lock(database_url, "ingestion-worker", "owner-b"))
             self.assertTrue(release_job_lock(database_url, "ingestion-worker", "owner-a"))
             self.assertTrue(try_acquire_job_lock(database_url, "ingestion-worker", "owner-b", 60))
+
+    def test_operator_accounts_hash_tokens_and_track_authentication(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_url = _sqlite_url(Path(temp_dir) / "accounts.db")
+            token = "phase22-storage-token-12345"
+
+            self.assertEqual(["viewer", "journal"], normalize_account_roles(["journal"]))
+
+            created = create_or_update_operator_account(
+                database_url,
+                account_key="liam",
+                display_name="Liam",
+                email="liam@example.com",
+                roles=["journal"],
+                token=token,
+                privacy_acknowledged=True,
+            )
+            matched = read_operator_account_by_token(database_url, token)
+            missing = read_operator_account_by_token(database_url, "wrong-token-value-12345")
+            listed = read_operator_accounts(database_url)
+
+            self.assertEqual("liam", created["accountKey"])
+            self.assertEqual(["viewer", "journal"], created["roles"])
+            self.assertTrue(created["tokenConfigured"])
+            self.assertIsNotNone(created["privacyAcknowledgedAt"])
+            self.assertNotIn("tokenSha256", created)
+            self.assertIsNotNone(matched)
+            self.assertEqual(created["id"], matched["id"])
+            self.assertEqual(64, len(matched["tokenSha256"]))
+            self.assertIsNotNone(matched["lastAuthenticatedAt"])
+            self.assertIsNone(missing)
+            self.assertEqual(1, listed["page"]["total"])
+            self.assertNotIn("tokenSha256", listed["accounts"][0])
 
     def test_model_registry_records_and_approves_evaluation_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -286,6 +379,7 @@ class RacingStorageTests(unittest.TestCase):
                     engine.dispose()
                 self.assertIn("races_current", table_names)
                 self.assertIn("admin_audit_events", table_names)
+                self.assertIn("operator_accounts", table_names)
                 self.assertIn("model_evaluation_results", table_names)
                 self.assertIn("prediction_run_entries", table_names)
                 self.assertIn("account_key", bet_columns)

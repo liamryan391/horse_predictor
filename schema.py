@@ -296,6 +296,23 @@ def add_normalized_tables(metadata: MetaData) -> None:
     )
 
     Table(
+        "operator_accounts",
+        metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("account_key", String(120), nullable=False, unique=True),
+        Column("display_name", String(160), nullable=False),
+        Column("email", String(254)),
+        Column("roles", Text, nullable=False),
+        Column("token_sha256", String(64), unique=True),
+        Column("status", String(40), nullable=False, default="active"),
+        Column("privacy_acknowledged_at", DateTime(timezone=True)),
+        Column("last_authenticated_at", DateTime(timezone=True)),
+        *timestamp_columns(),
+        Index("ix_operator_accounts_status", "status"),
+        Index("ix_operator_accounts_token_sha256", "token_sha256"),
+    )
+
+    Table(
         "job_locks",
         metadata,
         Column("lock_name", String(120), primary_key=True),

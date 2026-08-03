@@ -33,7 +33,7 @@ jobs:
     name: Acceptance Gate
     runs-on: ubuntu-latest
     env:
-      API_AUTH_TOKEN: ${{ secrets.API_AUTH_TOKEN }}
+      ACCOUNT_AUTH_TOKEN: ${{ secrets.ACCOUNT_AUTH_TOKEN || secrets.API_AUTH_TOKEN }}
       ADMIN_ACTOR: github-actions-staging-acceptance
     steps:
       - name: Checkout
@@ -69,7 +69,7 @@ jobs:
         run: >-
           python scripts/release-record.py
           --base-url "${{ inputs.api_base_url }}"
-          --admin-token "$API_AUTH_TOKEN"
+          --admin-token "$ACCOUNT_AUTH_TOKEN"
           --admin-actor github-actions-staging-acceptance
           --output release-records/staging-release-record.json
 

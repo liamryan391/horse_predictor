@@ -34,7 +34,7 @@ Use the administrative endpoint after a fresh race-card import or before launch 
 ```powershell
 Invoke-WebRequest `
   -Method POST `
-  -Headers @{ Authorization = "Bearer $env:API_AUTH_TOKEN" } `
+  -Headers @{ Authorization = "Bearer $env:ACCOUNT_AUTH_TOKEN"; "X-Account-Actor" = "Liam" } `
   -UseBasicParsing `
   "http://127.0.0.1:8000/api/v1/admin/prediction-runs"
 ```
@@ -44,7 +44,7 @@ Optional filters let an operator snapshot a single track, date, or runner search
 ```powershell
 Invoke-WebRequest `
   -Method POST `
-  -Headers @{ Authorization = "Bearer $env:API_AUTH_TOKEN" } `
+  -Headers @{ Authorization = "Bearer $env:ACCOUNT_AUTH_TOKEN"; "X-Account-Actor" = "Liam" } `
   -UseBasicParsing `
   "http://127.0.0.1:8000/api/v1/admin/prediction-runs?track=York"
 ```
@@ -54,7 +54,7 @@ For staging or production, require an approved model artifact before the run is 
 ```powershell
 Invoke-WebRequest `
   -Method POST `
-  -Headers @{ Authorization = "Bearer $env:API_AUTH_TOKEN" } `
+  -Headers @{ Authorization = "Bearer $env:ACCOUNT_AUTH_TOKEN"; "X-Account-Actor" = "Liam" } `
   -UseBasicParsing `
   "http://127.0.0.1:8000/api/v1/admin/prediction-runs?require_approved_model=true"
 ```

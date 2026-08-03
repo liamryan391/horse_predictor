@@ -14,18 +14,21 @@ The suite covers:
 
 - API contract shapes and filtering
 - server-side bet journal CRUD contracts
-- admin session, governance snapshot, audit-log, and model supersede contracts
+- account-auth session, operator-account storage, admin session, governance snapshot, audit-log, and model supersede contracts
 - prediction-run snapshot persistence and API contracts
 - prediction leakage and chronological holdout behavior
 - provider fixture flattening and validation summaries
 - SQLite repository upsert behavior and bet journal persistence
 - admin audit persistence and audit-table migrations
+- operator-account token hashing, role normalization, and account-table migrations
 - Alembic upgrade/downgrade roundtrip
 - sample data quality gates
 - enrichment coverage and course/weather URL checks
 - model calibration and market-baseline checks
 - model artifact save/load determinism and artifact-backed API serving
 - monitoring drift helpers, API request counters, and the `/api/v1/monitoring` contract
+- local broker cache helpers, manual JSON normalization, and local AI JSON validation
+- normalized provider entity sync, table counts, and normalized race-entry read model
 
 ## Frontend
 
@@ -64,12 +67,46 @@ Add `--require-prediction-run` when acceptance should also prove that at least o
 Add `--require-enriched-data` when acceptance should also prove that core enrichment fields meet the configured coverage threshold.
 Add `--require-monitoring` when acceptance should also prove that monitoring metrics and drift checks are populated.
 Add `--require-no-critical-alerts` when acceptance should fail on critical or blocked monitoring alerts.
-Add `--require-admin-governance` when acceptance should also prove that admin session, governance, and audit-log endpoints work with `API_AUTH_TOKEN`.
+Add `--require-admin-governance` when acceptance should also prove that admin session, governance, and audit-log endpoints work with an admin-capable account token.
 
 Run the provider-depth check with live weather-provider access:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\provider-depth-check.py --track York --race-date 2025-03-18
+```
+
+Run the redacted provider smoke check before live racing imports:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\provider-smoke-check.py --provider ourhub --days-ahead 0 --timeout-seconds 20 --retry-attempts 1
+```
+
+Use the smoke check to confirm endpoint reachability, provider-plan limits, row counts, field coverage, and validation issues without printing API keys or passwords.
+
+Run the no-network local broker smoke check:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\broker-smoke-check.py --cache-dir .codex_tmp\broker-smoke
+```
+
+Run the local account-auth smoke check:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\account-smoke-check.py --database-url .codex_tmp\phase22-accounts.db --account-key liam --display-name "Liam" --roles admin,journal --token "phase22-local-token-12345" --privacy-acknowledged
+```
+
+Run the local AI smoke check after starting Ollama, LM Studio, or another OpenAI-compatible local server:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\local-ai-smoke-check.py --provider ollama --base-url http://127.0.0.1:11434/v1 --model llama3.1
+```
+
+With `AI_PROVIDER=disabled`, the AI smoke check confirms the disabled path without making a network request.
+
+Run the normalized provider entity backfill check:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\normalized-backfill-check.py --database-url .codex_tmp\phase21-normalized.db --source sample
 ```
 
 When `agent-browser` is available on PATH, use it for the visual pass:
@@ -78,7 +115,7 @@ When `agent-browser` is available on PATH, use it for the visual pass:
 .\.venv\Scripts\python.exe scripts\visual-smoke-check.py --base-url http://127.0.0.1:5173 --verbose
 ```
 
-Use `--require-admin --admin-token $env:API_AUTH_TOKEN` when the Admin Console should be included in the visual gate.
+Use `--require-admin --admin-token $env:ACCOUNT_AUTH_TOKEN` when the Admin Console should be included in the visual gate.
 
 If `agent-browser` reports a daemon connection timeout or leaves a stuck helper process, run `agent-browser close --all` and `agent-browser doctor --fix`, then restart the terminal or Codex Desktop if needed. Treat that as a browser-automation tool issue when the HTTP API, frontend dev server, and build checks are otherwise green.
 

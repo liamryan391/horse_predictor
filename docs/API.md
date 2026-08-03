@@ -18,6 +18,7 @@ Core endpoints:
 - `GET /api/v1/data-quality`
 - `GET /api/v1/monitoring`
 - `GET /api/v1/safeguards`
+- `GET /api/v1/auth/session`
 - `GET /api/v1/meetings`
 - `GET /api/v1/races`
 - `GET /api/v1/race-card`
@@ -31,6 +32,11 @@ Core endpoints:
 - `GET /api/v1/model/registry`
 - `GET /api/v1/trends`
 - `GET /api/v1/ingestion-status`
+- `GET /api/v1/broker/status`
+- `GET /api/v1/broker/raw-payloads`
+- `GET /api/v1/broker/raw-payload-shape`
+- `GET /api/v1/normalized/status`
+- `GET /api/v1/normalized/race-entries`
 
 Write endpoints:
 
@@ -41,8 +47,10 @@ Write endpoints:
 Administrative endpoints:
 
 - `GET /api/v1/admin/session`
+- `GET /api/v1/admin/accounts`
 - `GET /api/v1/admin/governance`
 - `GET /api/v1/admin/audit-log`
+- `POST /api/v1/admin/accounts`
 - `POST /api/v1/admin/seed-sample`
 - `POST /api/v1/admin/model/evaluation`
 - `POST /api/v1/admin/model/{model_version_id}/approve`
@@ -99,24 +107,33 @@ Error responses use one envelope:
 
 The API avoids returning raw database URLs or credentials. CORS origins are configured with `BACKEND_CORS_ORIGINS`, and deployed API hosts are configured with `ALLOWED_HOSTS`.
 
-Administrative endpoints use bearer-token auth when `API_AUTH_TOKEN` is set:
+Account bearer tokens are the preferred auth path. `GET /api/v1/auth/session` returns the resolved actor, account key, account id, roles, auth mode, and environment. Account records are stored in `operator_accounts` with hashed tokens only.
+
+Create or update a local operator account with:
 
 ```powershell
-Invoke-WebRequest -Method POST -Headers @{ Authorization = "Bearer $env:API_AUTH_TOKEN" } -UseBasicParsing "http://127.0.0.1:8000/api/v1/admin/seed-sample"
+.\.venv\Scripts\python.exe scripts\account-smoke-check.py --database-url horse_racing.db --account-key liam --display-name "Liam" --roles admin,journal --token "replace-with-a-long-local-token" --privacy-acknowledged
 ```
 
-Server-side journal endpoints use `JOURNAL_AUTH_TOKEN` when configured. In local development only, empty admin and journal tokens fall back to a `local-dev` operator context so the app remains runnable before secrets exist.
+Use that token on admin or journal requests:
+
+```powershell
+Invoke-WebRequest -Method GET -Headers @{ Authorization = "Bearer $env:ACCOUNT_AUTH_TOKEN"; "X-Account-Actor" = "Liam" } -UseBasicParsing "http://127.0.0.1:8000/api/v1/auth/session"
+```
+
+Roles are `viewer`, `journal`, `operator`, `admin`, and `release-approver`. Admin implies all operator capabilities; journal can read/write only its account-owned bet journal rows.
+
+`API_AUTH_TOKEN` and `JOURNAL_AUTH_TOKEN` remain supported as legacy local-development bearer tokens. In local development only, empty admin and journal tokens fall back to a `local-dev` operator context so the app remains runnable before secrets exist.
 
 For staging or production, `APP_ENV=staging` or `APP_ENV=production` requires:
 
 - managed SQL `DATABASE_URL`
 - HTTPS `BACKEND_CORS_ORIGINS`
 - explicit `ALLOWED_HOSTS`
-- non-placeholder `API_AUTH_TOKEN` with at least 32 characters
-- non-placeholder `JOURNAL_AUTH_TOKEN` with at least 32 characters
+- `ACCOUNT_AUTH_ENABLED=true` for named account tokens
 - non-empty `JOURNAL_ACCOUNT_KEY`
 
-The API also rejects oversized requests through `MAX_REQUEST_BODY_BYTES`, sanitizes incoming `X-Request-ID` values, applies baseline security headers, and uses constant-time comparison for administrative and journal bearer tokens.
+The API also rejects oversized requests through `MAX_REQUEST_BODY_BYTES`, sanitizes incoming `X-Request-ID` values, applies baseline security headers, hashes account tokens with SHA-256 before storage, and uses constant-time comparison for legacy local bearer tokens.
 
 ## Rate Limiting
 
@@ -144,6 +161,34 @@ The React Responsible Use page reads this endpoint and falls back to the built-i
 - `providerFreshness` reports the latest ingestion status per provider/table from `api_ingestion_runs`.
 
 The React Evaluation view displays this response beside model registry and prediction-run snapshots.
+
+## Local Broker
+
+`GET /api/v1/broker/status` returns the configured raw-payload cache directory, cached payload count, provider/resource counts, latest cached timestamp, and redacted local AI status.
+
+`GET /api/v1/broker/raw-payloads` lists cached payload envelopes with provider, resource, endpoint, source URL, payload hash, row count, and licensing note.
+
+`GET /api/v1/broker/raw-payload-shape?path=<payload-path>` validates a cached payload hash and returns its structural shape. Add `ai_review=true` only after local AI is configured; the response keeps AI review output separate from provider-supplied facts.
+
+See [LOCAL_DATA_BROKER.md](LOCAL_DATA_BROKER.md) for raw-cache commands and local AI setup.
+
+## Normalized Provider Entities
+
+`GET /api/v1/normalized/status` returns row counts for the normalized provider entity tables, including courses, meetings, races, race entries, historical results, odds snapshots, and named participants.
+
+`GET /api/v1/normalized/race-entries` returns the normalized race-entry read model with synthetic or provider-supplied entity IDs, runner context, latest odds snapshot, and historical result fields when available.
+
+Supported filters:
+
+```text
+provider=sample
+track=York
+race_date=2026-08-03
+limit=100
+offset=0
+```
+
+The existing `/race-card` and `/predictions` endpoints still read the compatibility tables. The normalized endpoints are for audit, migration checks, and future provider-depth work.
 
 ## Monitoring And Drift
 
@@ -173,7 +218,7 @@ Use `POST /api/v1/admin/prediction-runs` to record the current scored race card 
 
 ## Bet Journal
 
-`GET /api/v1/bet-journal` lists server-side journal rows from `user_bets`. The access context supplies the account key: local development uses `local`, admin tokens use `admin`, and journal tokens use `JOURNAL_ACCOUNT_KEY`. Future authentication should replace shared-token account keys with user-owned accounts before personal bet history is stored.
+`GET /api/v1/bet-journal` lists server-side journal rows from `user_bets`. The access context supplies the account key: account tokens use `operator_accounts.account_key`, local development uses `local`, legacy admin tokens use `admin`, and legacy journal tokens use `JOURNAL_ACCOUNT_KEY`.
 
 Create, settle, and remove rows with:
 

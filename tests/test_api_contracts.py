@@ -4,14 +4,19 @@ from dataclasses import replace
 import os
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
+
+from fastapi import HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 
 _TEMP_DIR = tempfile.TemporaryDirectory()
 os.environ["DATABASE_URL"] = f"sqlite:///{(Path(_TEMP_DIR.name) / 'api_contracts.db').as_posix()}"
 os.environ["MODEL_ARTIFACT_DIR"] = str(Path(_TEMP_DIR.name) / "artifacts")
 
-from api import SETTINGS, admin_audit_log, admin_governance, admin_session, approve_model, bet_journal, create_bet, delete_bet, capture_model_evaluation, capture_prediction_run, data_quality as api_data_quality, entity_profile, health, meetings, model_registry, model_status, monitoring as api_monitoring, normalize_request_id, prediction_run_detail, prediction_runs, predictions, race_card, ready, safeguards, summary, supersede_model, update_bet
+from api import SETTINGS, access_from_request, admin_accounts, admin_audit_log, admin_governance, admin_session, approve_model, auth_session, bet_journal, broker_status, create_bet, delete_bet, capture_model_evaluation, capture_prediction_run, data_quality as api_data_quality, entity_profile, health, meetings, model_registry, model_status, monitoring as api_monitoring, normalize_request_id, normalized_race_entries, normalized_status, prediction_run_detail, prediction_runs, predictions, race_card, ready, safeguards, summary, supersede_model, update_bet, upsert_operator_account
 from api_contracts import (
+    AccountSessionResponse,
     AdminAuditResponse,
     AdminGovernanceResponse,
     AdminSessionResponse,
@@ -20,6 +25,7 @@ from api_contracts import (
     BetJournalEntryResponse,
     BetJournalListResponse,
     BetJournalUpdateRequest,
+    BrokerStatusResponse,
     DataQualityResponse,
     HealthResponse,
     ModelRegistryResponse,
@@ -28,6 +34,11 @@ from api_contracts import (
     PredictionRunsResponse,
     PredictionsResponse,
     MonitoringResponse,
+    NormalizedRaceEntriesResponse,
+    NormalizedStatusResponse,
+    OperatorAccountListResponse,
+    OperatorAccountResponse,
+    OperatorAccountUpsertRequest,
     ProductSafeguardsResponse,
     RaceCardResponse,
     ReadinessResponse,
@@ -87,6 +98,20 @@ class APIContractTests(unittest.TestCase):
         self.assertIn("privacyPolicy", response.links)
         self.assertIn("termsOfUse", response.links)
 
+    def test_broker_status_exposes_cache_and_local_ai_state(self) -> None:
+        response = BrokerStatusResponse(**broker_status())
+
+        self.assertGreaterEqual(response.rawPayloadCount, 0)
+        self.assertIn(response.ai["status"], {"enabled", "disabled"})
+        self.assertIn("config", response.ai)
+
+    def test_normalized_provider_entity_endpoints_return_core_shapes(self) -> None:
+        status_response = NormalizedStatusResponse(**normalized_status())
+        entries_response = NormalizedRaceEntriesResponse(**normalized_race_entries(limit=5))
+
+        self.assertTrue(any(row.tableName == "race_entries" for row in status_response.tables))
+        self.assertGreaterEqual(entries_response.page.total, 0)
+
     def test_model_registry_exposes_persisted_evaluation_snapshots(self) -> None:
         snapshot = ModelSnapshotResponse(**capture_model_evaluation(None))
         response = ModelRegistryResponse(**model_registry())
@@ -124,6 +149,42 @@ class APIContractTests(unittest.TestCase):
         self.assertEqual(session.actor, governance.session.actor)
         self.assertGreaterEqual(len(governance.models), 1)
         self.assertIn(governance.monitoring.status, {"ok", "warning", "blocked", "critical"})
+
+    def test_account_auth_session_and_admin_account_contracts(self) -> None:
+        token = "phase22-account-token-12345"
+        created = OperatorAccountResponse(
+            **upsert_operator_account(
+                OperatorAccountUpsertRequest(
+                    accountKey="phase22-journal",
+                    displayName="Phase 22 Journal",
+                    roles=["journal"],
+                    token=token,
+                    privacyAcknowledged=True,
+                ),
+                access=None,
+            )
+        )
+        listed = OperatorAccountListResponse(**admin_accounts(access=None))
+
+        self.assertTrue(created.account.tokenConfigured)
+        self.assertIn("journal", created.account.roles)
+        self.assertTrue(any(account.accountKey == "phase22-journal" for account in listed.accounts))
+
+        request = SimpleNamespace(headers={"x-account-actor": "Liam Browser"})
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+        context = access_from_request(request, credentials, "journal")
+        session = AccountSessionResponse(**auth_session(context))
+
+        self.assertEqual("account", context.auth_mode)
+        self.assertEqual(created.account.id, context.account_id)
+        self.assertEqual("phase22-journal", session.accountKey)
+        self.assertEqual("Liam Browser", session.actor)
+        self.assertIn("journal", session.roles)
+
+        with self.assertRaises(HTTPException) as rejected:
+            access_from_request(request, credentials, "admin")
+
+        self.assertEqual(403, rejected.exception.status_code)
 
     def test_prediction_runs_expose_persisted_scoring_snapshots(self) -> None:
         snapshot = PredictionRunResponse(**capture_prediction_run(None))
@@ -190,6 +251,7 @@ class APIContractTests(unittest.TestCase):
             allowed_hosts=(),
             api_auth_token="short",
             journal_auth_token="replace-with-a-long-random-token",
+            account_auth_enabled=False,
             max_request_body_bytes=512,
         )
 

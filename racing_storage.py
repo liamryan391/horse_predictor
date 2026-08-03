@@ -22,13 +22,16 @@ from sqlalchemy import (
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 
-from race_enrichment import MODEL_ENRICHMENT_COLUMNS, distance_to_yards
+from race_enrichment import MODEL_ENRICHMENT_COLUMNS, course_metadata_for, distance_to_yards
 from schema import METADATA, NUMERIC_COLUMNS, RACE_COLUMNS, RACE_IDENTITY_COLUMNS, TABLES, VALID_TABLES
 from settings import resolve_database_url
 
 BET_STATUSES = {"open", "won", "lost", "void"}
 DEFAULT_BET_ACCOUNT_KEY = "local"
 MODEL_STATUSES = {"candidate", "approved", "superseded"}
+ACCOUNT_STATUSES = {"active", "disabled"}
+ACCOUNT_ROLES = {"viewer", "reader", "journal", "operator", "admin", "release-approver"}
+ROLE_ALIASES = {"release_approver": "release-approver", "view": "viewer", "read": "reader"}
 USER_BETS_COLUMNS = (
     "id",
     "account_key",
@@ -51,6 +54,18 @@ USER_BETS_COLUMNS = (
     "updated_at",
 )
 USER_BETS_REQUIRED_COLUMNS = set(USER_BETS_COLUMNS) - {"id"}
+NORMALIZED_SYNC_TABLES = (
+    "courses",
+    "race_meetings",
+    "races",
+    "race_entries",
+    "historical_results",
+    "odds_snapshots",
+    "horses",
+    "jockeys",
+    "trainers",
+    "owners",
+)
 
 
 def utc_now() -> datetime:
@@ -109,6 +124,19 @@ def _int_or_none(value) -> int | None:
         return None
 
 
+def _stable_provider_id(provider: str, entity_name: str, *parts: Any) -> str:
+    payload = json.dumps(
+        {
+            "provider": provider,
+            "entity": entity_name,
+            "parts": [_json_safe_value(part) for part in parts],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"synthetic:{hashlib.sha256(payload).hexdigest()[:32]}"
+
+
 def _json_safe_value(value) -> Any:
     if value is None:
         return None
@@ -147,6 +175,71 @@ def _trim_text(value: Any, max_length: int | None = None) -> str | None:
     if not text_value:
         return None
     return text_value[:max_length] if max_length else text_value
+
+
+def _flat_row_payload(row: dict[str, Any]) -> str:
+    return json.dumps(
+        {key: _json_safe_value(value) for key, value in row.items()},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def account_token_sha256(token: str) -> str:
+    cleaned = token.strip()
+    if len(cleaned) < 16:
+        raise ValueError("Account bearer tokens must be at least 16 characters.")
+    return hashlib.sha256(cleaned.encode("utf-8")).hexdigest()
+
+
+def normalize_account_roles(roles: list[str] | tuple[str, ...] | str) -> list[str]:
+    if isinstance(roles, str):
+        raw_roles = [role.strip() for role in roles.split(",")]
+    else:
+        raw_roles = [str(role).strip() for role in roles]
+    normalized = []
+    for role in raw_roles:
+        if not role:
+            continue
+        role_key = ROLE_ALIASES.get(role.lower().replace(" ", "-"), role.lower().replace(" ", "-"))
+        if role_key not in ACCOUNT_ROLES:
+            raise ValueError(f"Unsupported account role: {role}.")
+        normalized.append(role_key)
+    if "admin" in normalized:
+        normalized.extend(["operator", "journal", "viewer"])
+    if "operator" in normalized:
+        normalized.append("viewer")
+    if "journal" in normalized:
+        normalized.append("viewer")
+    if "reader" in normalized:
+        normalized.append("viewer")
+    deduped = sorted(set(normalized), key=lambda item: ["viewer", "reader", "journal", "operator", "admin", "release-approver"].index(item))
+    if not deduped:
+        raise ValueError("At least one account role is required.")
+    return deduped
+
+
+def _account_payload(row: dict[str, Any], include_token_hash: bool = False) -> dict[str, Any]:
+    try:
+        roles = json.loads(row.get("roles") or "[]")
+    except json.JSONDecodeError:
+        roles = []
+    payload = {
+        "id": row.get("id"),
+        "accountKey": row.get("account_key"),
+        "displayName": row.get("display_name"),
+        "email": row.get("email"),
+        "roles": roles if isinstance(roles, list) else [],
+        "status": row.get("status"),
+        "tokenConfigured": bool(row.get("token_sha256")),
+        "privacyAcknowledgedAt": _iso_value(row.get("privacy_acknowledged_at")),
+        "lastAuthenticatedAt": _iso_value(row.get("last_authenticated_at")),
+        "createdAt": _iso_value(row.get("created_at")),
+        "updatedAt": _iso_value(row.get("updated_at")),
+    }
+    if include_token_hash:
+        payload["tokenSha256"] = row.get("token_sha256")
+    return payload
 
 
 def _required_text(value: Any, field_name: str, max_length: int | None = None) -> str:
@@ -374,6 +467,349 @@ def write_races(
         engine.dispose()
 
     return len(write_df)
+
+
+def _upsert_id(conn, table_name: str, identity_values: dict[str, Any], values: dict[str, Any]) -> int:
+    table = METADATA.tables[table_name]
+    filters = [getattr(table.c, column_name) == value for column_name, value in identity_values.items()]
+    existing = conn.execute(select(table).where(*filters)).mappings().first()
+    now = utc_now()
+    if existing:
+        update_values = {**values}
+        if "updated_at" in table.c:
+            update_values["updated_at"] = now
+        conn.execute(update(table).where(table.c.id == existing["id"]).values(**update_values))
+        return int(existing["id"])
+
+    insert_values = {**identity_values, **values}
+    if "created_at" in table.c:
+        insert_values["created_at"] = now
+    if "updated_at" in table.c:
+        insert_values["updated_at"] = now
+    result = conn.execute(insert(table).values(**insert_values))
+    return int(result.inserted_primary_key[0])
+
+
+def _upsert_named_entity(
+    conn,
+    table_name: str,
+    entity_name: str,
+    provider: str,
+    name: Any,
+    *,
+    extra_values: dict[str, Any] | None = None,
+) -> int | None:
+    cleaned_name = _trim_text(name, max_length=160)
+    if not cleaned_name:
+        return None
+    provider_id_column = f"provider_{entity_name}_id"
+    return _upsert_id(
+        conn,
+        table_name,
+        {"provider": provider, "name": cleaned_name},
+        {
+            provider_id_column: _stable_provider_id(provider, entity_name, cleaned_name),
+            **(extra_values or {}),
+        },
+    )
+
+
+def _compatibility_rows(conn, table_name: str, source: str | None = None) -> list[dict[str, Any]]:
+    table = METADATA.tables[table_name]
+    query = select(table)
+    if source:
+        query = query.where(table.c.source == source)
+    return [dict(row) for row in conn.execute(query).mappings().all()]
+
+
+def _race_identity(row: dict[str, Any], provider: str) -> dict[str, Any]:
+    race_date = _as_date(row.get("race_date"))
+    track = _trim_text(row.get("track"), max_length=120)
+    distance = _float_or_none(row.get("distance"))
+    surface = _trim_text(row.get("surface"), max_length=80)
+    race_id = _stable_provider_id(provider, "race", race_date, track, distance, surface)
+    return {
+        "race_date": race_date,
+        "track": track,
+        "distance": distance,
+        "surface": surface,
+        "provider_race_id": race_id,
+        "off_time": f"flat-{race_id.split(':', 1)[-1][:12]}",
+    }
+
+
+def _upsert_compatible_normalized_row(
+    conn,
+    row: dict[str, Any],
+    table_name: str,
+    default_source: str | None = None,
+) -> dict[str, int]:
+    provider = _trim_text(row.get("source") or default_source or "manual", max_length=80) or "manual"
+    race_identity = _race_identity(row, provider)
+    if not race_identity["race_date"] or not race_identity["track"] or not _trim_text(row.get("horse")):
+        return {"skipped": 1}
+
+    metadata = course_metadata_for(race_identity["track"])
+    course_id = _upsert_named_entity(
+        conn,
+        "courses",
+        "course",
+        provider,
+        race_identity["track"],
+        extra_values={"country": metadata.country if metadata else None},
+    )
+    if course_id is None:
+        return {"skipped": 1}
+
+    meeting_id = _upsert_id(
+        conn,
+        "race_meetings",
+        {"provider": provider, "race_date": race_identity["race_date"], "course_id": course_id},
+        {"provider_meeting_id": _stable_provider_id(provider, "meeting", race_identity["race_date"], race_identity["track"])},
+    )
+    race_id = _upsert_id(
+        conn,
+        "races",
+        {
+            "provider": provider,
+            "race_date": race_identity["race_date"],
+            "course_id": course_id,
+            "off_time": race_identity["off_time"],
+            "distance_yards": race_identity["distance"],
+        },
+        {
+            "provider_race_id": race_identity["provider_race_id"],
+            "meeting_id": meeting_id,
+            "surface": race_identity["surface"],
+            "going": _trim_text(row.get("weather") or row.get("surface"), max_length=120),
+            "race_class": _float_or_none(row.get("class_rating")),
+            "raw_payload": _flat_row_payload(row),
+        },
+    )
+
+    horse_id = _upsert_named_entity(conn, "horses", "horse", provider, row.get("horse"))
+    if horse_id is None:
+        return {"skipped": 1}
+    jockey_id = _upsert_named_entity(conn, "jockeys", "jockey", provider, row.get("jockey"))
+    trainer_id = _upsert_named_entity(conn, "trainers", "trainer", provider, row.get("trainer"))
+    owner_id = _upsert_named_entity(conn, "owners", "owner", provider, row.get("owner"))
+    entry_id = _upsert_id(
+        conn,
+        "race_entries",
+        {"provider": provider, "race_id": race_id, "horse_id": horse_id},
+        {
+            "provider_entry_id": _stable_provider_id(provider, "entry", race_identity["provider_race_id"], row.get("horse")),
+            "jockey_id": jockey_id,
+            "trainer_id": trainer_id,
+            "owner_id": owner_id,
+            "draw": _float_or_none(row.get("draw")),
+            "horse_age": _float_or_none(row.get("horse_age")),
+            "horse_weight": _float_or_none(row.get("horse_weight")),
+            "speed_rating": _float_or_none(row.get("speed_rating")),
+            "class_rating": _float_or_none(row.get("class_rating")),
+            "days_since_last_run": _float_or_none(row.get("days_since_last_run")),
+            "raw_payload": _flat_row_payload(row),
+        },
+    )
+
+    counts = {
+        "courses": 1,
+        "raceMeetings": 1,
+        "races": 1,
+        "raceEntries": 1,
+        "horses": 1,
+        "jockeys": 1 if jockey_id is not None else 0,
+        "trainers": 1 if trainer_id is not None else 0,
+        "owners": 1 if owner_id is not None else 0,
+        "historicalResults": 0,
+        "oddsSnapshots": 0,
+        "skipped": 0,
+    }
+
+    finishing_position = _float_or_none(row.get("finishing_position"))
+    if table_name == TABLES["historical"] and finishing_position is not None:
+        _upsert_id(
+            conn,
+            "historical_results",
+            {"race_entry_id": entry_id},
+            {
+                "finishing_position": finishing_position,
+                "result_status": "finished",
+                "source": provider,
+                "raw_payload": _flat_row_payload(row),
+            },
+        )
+        counts["historicalResults"] = 1
+
+    odds_decimal = _float_or_none(row.get("odds"))
+    if odds_decimal is not None:
+        odds_table = METADATA.tables["odds_snapshots"]
+        captured_at = _as_utc_datetime(row.get("ingested_at")) or utc_now()
+        exists = conn.execute(
+            select(func.count())
+            .select_from(odds_table)
+            .where(
+                odds_table.c.race_entry_id == entry_id,
+                odds_table.c.provider == provider,
+                odds_table.c.odds_decimal == odds_decimal,
+                odds_table.c.captured_at == captured_at,
+                odds_table.c.source == table_name,
+            )
+        ).scalar_one()
+        if not exists:
+            conn.execute(
+                insert(odds_table),
+                {
+                    "race_entry_id": entry_id,
+                    "provider": provider,
+                    "odds_decimal": odds_decimal,
+                    "captured_at": captured_at,
+                    "source": table_name,
+                    "raw_payload": _flat_row_payload(row),
+                },
+            )
+            counts["oddsSnapshots"] = 1
+
+    return counts
+
+
+def _merge_sync_counts(total: dict[str, int], update_counts: dict[str, int]) -> None:
+    for key, value in update_counts.items():
+        total[key] = total.get(key, 0) + int(value)
+
+
+def sync_normalized_from_compatibility(
+    database_url: str | Path | None,
+    source: str | None = None,
+    include_historical: bool = True,
+    include_current: bool = True,
+) -> dict[str, int]:
+    init_db(database_url)
+    engine = get_engine(database_url)
+    counts = {
+        "courses": 0,
+        "raceMeetings": 0,
+        "races": 0,
+        "raceEntries": 0,
+        "horses": 0,
+        "jockeys": 0,
+        "trainers": 0,
+        "owners": 0,
+        "historicalResults": 0,
+        "oddsSnapshots": 0,
+        "skipped": 0,
+    }
+    try:
+        with engine.begin() as conn:
+            for table_name, enabled in [(TABLES["historical"], include_historical), (TABLES["current"], include_current)]:
+                if not enabled:
+                    continue
+                for row in _compatibility_rows(conn, table_name, source=source):
+                    _merge_sync_counts(counts, _upsert_compatible_normalized_row(conn, row, table_name, source))
+    finally:
+        engine.dispose()
+    return counts
+
+
+def normalized_table_counts(database_url: str | Path | None) -> dict[str, int]:
+    init_db(database_url)
+    engine = get_engine(database_url)
+    try:
+        with engine.connect() as conn:
+            return {
+                table_name: int(conn.execute(select(func.count()).select_from(METADATA.tables[table_name])).scalar_one())
+                for table_name in NORMALIZED_SYNC_TABLES
+            }
+    finally:
+        engine.dispose()
+
+
+def read_normalized_race_entries(
+    database_url: str | Path | None,
+    provider: str | None = None,
+    race_date: date | str | None = None,
+    track: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> dict[str, Any]:
+    init_db(database_url)
+    filters = []
+    params: dict[str, Any] = {"limit": limit, "offset": offset}
+    if provider:
+        filters.append("e.provider = :provider")
+        params["provider"] = provider
+    if race_date:
+        filters.append("r.race_date = :race_date")
+        params["race_date"] = race_date.isoformat() if hasattr(race_date, "isoformat") else str(race_date)
+    if track:
+        filters.append("LOWER(c.name) = LOWER(:track)")
+        params["track"] = track
+    where_clause = "WHERE " + " AND ".join(filters) if filters else ""
+    base_sql = f"""
+        FROM race_entries e
+        JOIN races r ON r.id = e.race_id
+        JOIN courses c ON c.id = r.course_id
+        JOIN horses h ON h.id = e.horse_id
+        LEFT JOIN jockeys j ON j.id = e.jockey_id
+        LEFT JOIN trainers t ON t.id = e.trainer_id
+        LEFT JOIN owners o ON o.id = e.owner_id
+        LEFT JOIN historical_results hr ON hr.race_entry_id = e.id
+        LEFT JOIN odds_snapshots os ON os.id = (
+            SELECT os2.id
+            FROM odds_snapshots os2
+            WHERE os2.race_entry_id = e.id
+            ORDER BY os2.captured_at DESC, os2.id DESC
+            LIMIT 1
+        )
+        {where_clause}
+    """
+    query_sql = f"""
+        SELECT
+            e.id AS raceEntryId,
+            r.id AS raceId,
+            r.meeting_id AS meetingId,
+            e.provider AS provider,
+            e.provider_entry_id AS providerEntryId,
+            r.provider_race_id AS providerRaceId,
+            c.provider_course_id AS providerCourseId,
+            h.provider_horse_id AS providerHorseId,
+            c.name AS track,
+            c.country AS country,
+            r.race_date AS raceDate,
+            r.off_time AS offTime,
+            r.distance_yards AS distance,
+            r.surface AS surface,
+            r.going AS going,
+            h.name AS horse,
+            j.name AS jockey,
+            t.name AS trainer,
+            o.name AS owner,
+            e.draw AS draw,
+            e.horse_age AS horseAge,
+            e.horse_weight AS horseWeight,
+            e.speed_rating AS speedRating,
+            e.class_rating AS classRating,
+            e.days_since_last_run AS daysSinceLastRun,
+            os.odds_decimal AS odds,
+            os.captured_at AS oddsCapturedAt,
+            hr.finishing_position AS finishingPosition,
+            hr.result_status AS resultStatus
+        {base_sql}
+        ORDER BY r.race_date ASC, c.name ASC, r.distance_yards ASC, h.name ASC
+        LIMIT :limit OFFSET :offset
+    """
+    count_sql = f"SELECT COUNT(*) AS total {base_sql}"
+    engine = get_engine(database_url)
+    try:
+        with engine.connect() as conn:
+            total = int(conn.execute(text(count_sql), params).scalar_one())
+            frame = pd.read_sql_query(text(query_sql), conn, params=params)
+    finally:
+        engine.dispose()
+    return {
+        "entries": [{key: _json_safe_value(value) for key, value in row.items()} for row in frame.to_dict(orient="records")],
+        "page": {"limit": limit, "offset": offset, "returned": len(frame), "total": total},
+    }
 
 
 def insert_ingestion_run(conn, provider: str, target_table: str, status: str, row_count: int, message: str | None, started_at: datetime) -> None:
@@ -1311,6 +1747,118 @@ def provider_freshness_report(database_url: str | Path | None) -> list[dict[str,
             "message": row.get("message"),
         }
     return list(latest.values())
+
+
+def create_or_update_operator_account(
+    database_url: str | Path | None,
+    *,
+    account_key: str,
+    display_name: str,
+    roles: list[str] | tuple[str, ...] | str,
+    token: str | None = None,
+    email: str | None = None,
+    status: str = "active",
+    privacy_acknowledged: bool = False,
+) -> dict[str, Any]:
+    normalized_status = status.strip().lower()
+    if normalized_status not in ACCOUNT_STATUSES:
+        raise ValueError(f"status must be one of: {', '.join(sorted(ACCOUNT_STATUSES))}.")
+    normalized_roles = normalize_account_roles(roles)
+    account_key_value = _required_text(account_key, "account_key", max_length=120)
+    display_name_value = _required_text(display_name, "display_name", max_length=160)
+    token_hash = account_token_sha256(token) if token else None
+    now = utc_now()
+
+    init_db(database_url)
+    engine = get_engine(database_url)
+    account_table = METADATA.tables["operator_accounts"]
+    try:
+        with engine.begin() as conn:
+            existing = conn.execute(
+                select(account_table).where(account_table.c.account_key == account_key_value)
+            ).mappings().first()
+            values = {
+                "display_name": display_name_value,
+                "email": _trim_text(email, max_length=254),
+                "roles": json.dumps(normalized_roles, separators=(",", ":")),
+                "status": normalized_status,
+                "updated_at": now,
+            }
+            if token_hash:
+                values["token_sha256"] = token_hash
+            if privacy_acknowledged:
+                values["privacy_acknowledged_at"] = now
+
+            if existing:
+                conn.execute(update(account_table).where(account_table.c.id == existing["id"]).values(**values))
+                account_id = int(existing["id"])
+            else:
+                insert_values = {
+                    "account_key": account_key_value,
+                    "created_at": now,
+                    "privacy_acknowledged_at": now if privacy_acknowledged else None,
+                    **values,
+                }
+                result = conn.execute(insert(account_table), insert_values)
+                account_id = int(result.inserted_primary_key[0])
+            row = conn.execute(select(account_table).where(account_table.c.id == account_id)).mappings().one()
+            return _account_payload(dict(row))
+    finally:
+        engine.dispose()
+
+
+def read_operator_accounts(
+    database_url: str | Path | None,
+    limit: int = 100,
+    offset: int = 0,
+) -> dict[str, Any]:
+    init_db(database_url)
+    engine = get_engine(database_url)
+    account_table = METADATA.tables["operator_accounts"]
+    try:
+        with engine.connect() as conn:
+            total = int(conn.execute(select(func.count()).select_from(account_table)).scalar_one())
+            rows = (
+                conn.execute(
+                    select(account_table)
+                    .order_by(account_table.c.created_at.desc(), account_table.c.id.desc())
+                    .limit(limit)
+                    .offset(offset)
+                )
+                .mappings()
+                .all()
+            )
+            accounts = [_account_payload(dict(row)) for row in rows]
+    finally:
+        engine.dispose()
+    return {"accounts": accounts, "page": {"limit": limit, "offset": offset, "returned": len(accounts), "total": total}}
+
+
+def read_operator_account_by_token(database_url: str | Path | None, token: str) -> dict[str, Any] | None:
+    try:
+        token_hash = account_token_sha256(token)
+    except ValueError:
+        return None
+
+    init_db(database_url)
+    engine = get_engine(database_url)
+    account_table = METADATA.tables["operator_accounts"]
+    now = utc_now()
+    try:
+        with engine.begin() as conn:
+            row = conn.execute(
+                select(account_table).where(
+                    account_table.c.token_sha256 == token_hash,
+                    account_table.c.status == "active",
+                )
+            ).mappings().first()
+            if not row:
+                return None
+            conn.execute(update(account_table).where(account_table.c.id == row["id"]).values(last_authenticated_at=now))
+            refreshed = conn.execute(select(account_table).where(account_table.c.id == row["id"])).mappings().one()
+            return _account_payload(dict(refreshed), include_token_hash=True)
+    finally:
+        engine.dispose()
 
 
 def seed_database_from_samples(

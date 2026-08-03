@@ -20,8 +20,7 @@ Required staging values:
 - `DATABASE_URL`
 - `BACKEND_CORS_ORIGINS`
 - `ALLOWED_HOSTS`
-- `API_AUTH_TOKEN`
-- `JOURNAL_AUTH_TOKEN`
+- `ACCOUNT_AUTH_ENABLED=true`
 - `JOURNAL_ACCOUNT_KEY`
 - `VITE_API_BASE_URL`
 - provider credentials when moving beyond `HORSE_API_PROVIDER=sample`
@@ -110,7 +109,7 @@ The summary endpoint returns `dataFreshness.status`, `ageHours`, and `maxAgeHour
 - The reviewed candidate can be approved through `POST /api/v1/admin/model/{model_version_id}/approve` after artifact checksum and feature-schema checks pass.
 - `/api/v1/ready` returns `ok` after artifact-backed model approval.
 - A prediction snapshot can be recorded through `POST /api/v1/admin/prediction-runs?require_approved_model=true` after model approval.
-- The Admin Console loads with `API_AUTH_TOKEN`, and `/api/v1/admin/audit-log` shows the model and prediction actions.
+- The Admin Console loads with an admin-capable account token, and `/api/v1/admin/audit-log` shows the model and prediction actions.
 - `MODEL_ARTIFACT_DIR` should point at durable storage; the staging compose file mounts `/app/model_artifacts` as a named volume.
 - `python scripts/production-readiness-check.py --base-url <api-url> --require-approved-artifact --require-monitoring --require-admin-governance` passes.
 - `python scripts/release-record.py --base-url <api-url> --output release-records/staging-release-record.json` captures commit, migration, model, prediction-run, freshness, monitoring, and audit evidence.

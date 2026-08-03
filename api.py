@@ -28,11 +28,15 @@ from api_contracts import (
     AdminAuditResponse,
     AdminGovernanceResponse,
     AdminSessionResponse,
+    AccountSessionResponse,
     BetJournalCreateRequest,
     BetJournalDeleteResponse,
     BetJournalEntryResponse,
     BetJournalListResponse,
     BetJournalUpdateRequest,
+    BrokerPayloadShapeResponse,
+    BrokerRawPayloadsResponse,
+    BrokerStatusResponse,
     DataQualityResponse,
     EntityProfileResponse,
     ErrorResponse,
@@ -44,6 +48,11 @@ from api_contracts import (
     ModelSnapshotResponse,
     ModelStatusResponse,
     MonitoringResponse,
+    NormalizedRaceEntriesResponse,
+    NormalizedStatusResponse,
+    OperatorAccountListResponse,
+    OperatorAccountResponse,
+    OperatorAccountUpsertRequest,
     PageMeta,
     PredictionRunResponse,
     PredictionRunsResponse,
@@ -56,6 +65,8 @@ from api_contracts import (
     SummaryResponse,
     TrendsResponse,
 )
+from local_ai import local_ai_config_from_settings, redacted_ai_config, review_payload_mapping
+from local_data_broker import list_cached_payloads, load_cached_payload, payload_shape, raw_payload_cache_status
 from monitoring import api_metrics_snapshot, build_drift_report, drift_alerts, record_api_request, utc_timestamp, worst_status
 from prediction_model import (
     add_scoring_features,
@@ -74,13 +85,18 @@ from race_enrichment import ENRICHMENT_COLUMNS, enrich_race_frame
 from racing_storage import (
     TABLES,
     approve_model_version,
+    create_or_update_operator_account,
     delete_bet_journal_entry,
     ingestion_status,
+    normalized_table_counts,
     read_latest_approved_model_version,
     read_admin_audit_events,
     read_bet_journal,
     read_model_version,
     read_model_registry,
+    read_normalized_race_entries,
+    read_operator_account_by_token,
+    read_operator_accounts,
     read_prediction_run,
     read_prediction_runs,
     read_races,
@@ -117,6 +133,8 @@ class AccessContext:
     actor: str
     roles: tuple[str, ...]
     account_key: str
+    auth_mode: str = "local"
+    account_id: int | None = None
 
 app = FastAPI(
     title="Horse Predictor API",
@@ -130,7 +148,7 @@ app.add_middleware(
     allow_origins=list(SETTINGS.backend_cors_origins),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Admin-Actor", "X-Journal-Actor", "X-Request-ID"],
+    allow_headers=["Authorization", "Content-Type", "X-Account-Actor", "X-Admin-Actor", "X-Journal-Actor", "X-Request-ID"],
     expose_headers=["X-Request-ID"],
 )
 TRACING_STATUS = configure_tracing(app, SETTINGS.otel_enabled, SETTINGS.otel_service_name)
@@ -510,24 +528,50 @@ def access_payload(access: AccessContext) -> dict[str, Any]:
     return {
         "requestId": request_id(),
         "actor": access.actor,
+        "accountKey": access.account_key,
+        "accountId": access.account_id,
         "roles": list(access.roles),
+        "authMode": access.auth_mode,
         "environment": SETTINGS.app_env,
-        "adminAuthRequired": bool(SETTINGS.api_auth_token) or SETTINGS.is_deployed_environment,
-        "journalAuthRequired": bool(SETTINGS.journal_auth_token) or SETTINGS.is_deployed_environment,
+        "accountAuthEnabled": SETTINGS.account_auth_enabled,
+        "adminAuthRequired": SETTINGS.account_auth_enabled or bool(SETTINGS.api_auth_token) or SETTINGS.is_deployed_environment,
+        "journalAuthRequired": SETTINGS.account_auth_enabled or bool(SETTINGS.journal_auth_token) or SETTINGS.is_deployed_environment,
         "adminTokenConfigured": bool(SETTINGS.api_auth_token),
         "journalTokenConfigured": bool(SETTINGS.journal_auth_token),
     }
 
 
 def local_access_context() -> AccessContext:
-    return AccessContext(actor="local-dev", roles=("reader", "journal", "admin"), account_key="local")
+    return AccessContext(
+        actor="local-dev",
+        roles=("viewer", "reader", "journal", "operator", "admin", "release-approver"),
+        account_key="local",
+        auth_mode="local",
+    )
+
+
+def role_allows(roles: tuple[str, ...], required_role: str) -> bool:
+    role_set = set(roles)
+    if "admin" in role_set:
+        return True
+    if required_role in {"reader", "viewer"}:
+        return bool(role_set & {"viewer", "reader", "journal", "operator", "release-approver"})
+    if required_role == "journal":
+        return bool(role_set & {"journal", "operator"})
+    if required_role == "operator":
+        return "operator" in role_set
+    if required_role == "release-approver":
+        return "release-approver" in role_set
+    return required_role in role_set
 
 
 def access_context_or_local(value: Any, required_role: str = "admin") -> AccessContext:
     if isinstance(value, AccessContext):
+        if not role_allows(value.roles, required_role):
+            raise HTTPException(status_code=403, detail=f"{required_role} role is required.")
         return value
     context = local_access_context()
-    if required_role not in context.roles:
+    if not role_allows(context.roles, required_role):
         raise HTTPException(status_code=403, detail=f"{required_role} role is required.")
     return context
 
@@ -535,27 +579,57 @@ def access_context_or_local(value: Any, required_role: str = "admin") -> AccessC
 def access_from_request(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None,
-    required_role: Literal["admin", "journal"],
+    required_role: Literal["admin", "journal", "operator", "reader", "release-approver"],
 ) -> AccessContext:
     token = credentials.credentials if credentials and credentials.scheme.lower() == "bearer" else None
-    actor_header = request.headers.get("x-admin-actor") or request.headers.get("x-journal-actor")
+    actor_header = (
+        request.headers.get("x-account-actor")
+        or request.headers.get("x-admin-actor")
+        or request.headers.get("x-journal-actor")
+    )
 
-    if SETTINGS.api_auth_token and token and compare_digest(token, SETTINGS.api_auth_token):
+    if SETTINGS.account_auth_enabled and token:
+        account = read_operator_account_by_token(DATABASE_URL, token)
+        if account:
+            roles = tuple(account["roles"])
+            if not role_allows(roles, required_role):
+                raise HTTPException(status_code=403, detail=f"{required_role} role is required.")
+            fallback_actor = account.get("displayName") or account["accountKey"]
+            return AccessContext(
+                actor=normalize_actor(actor_header, fallback_actor),
+                roles=roles,
+                account_key=account["accountKey"],
+                account_id=account["id"],
+                auth_mode="account",
+            )
+
+    legacy_bearer_allowed = not SETTINGS.is_deployed_environment or not SETTINGS.account_auth_enabled
+    if legacy_bearer_allowed and SETTINGS.api_auth_token and token and compare_digest(token, SETTINGS.api_auth_token):
         actor = normalize_actor(actor_header, "admin")
-        return AccessContext(actor=actor, roles=("reader", "journal", "admin"), account_key="admin")
+        return AccessContext(
+            actor=actor,
+            roles=("viewer", "reader", "journal", "operator", "admin", "release-approver"),
+            account_key="admin",
+            auth_mode="legacy-admin-token",
+        )
 
-    if SETTINGS.journal_auth_token and token and compare_digest(token, SETTINGS.journal_auth_token):
+    if legacy_bearer_allowed and SETTINGS.journal_auth_token and token and compare_digest(token, SETTINGS.journal_auth_token):
         if required_role == "admin":
             raise HTTPException(status_code=403, detail="Administrative role is required.")
         actor = normalize_actor(actor_header, SETTINGS.journal_account_key)
-        return AccessContext(actor=actor, roles=("reader", "journal"), account_key=SETTINGS.journal_account_key.strip())
+        return AccessContext(
+            actor=actor,
+            roles=("viewer", "reader", "journal"),
+            account_key=SETTINGS.journal_account_key.strip(),
+            auth_mode="legacy-journal-token",
+        )
 
     any_token_configured = bool(SETTINGS.api_auth_token or SETTINGS.journal_auth_token)
-    if not SETTINGS.is_deployed_environment and not any_token_configured:
+    if not SETTINGS.is_deployed_environment and not any_token_configured and not token:
         return local_access_context()
 
     if not token:
-        auth_label = "Administrative" if required_role == "admin" else "Journal"
+        auth_label = "Administrative" if required_role == "admin" else "Account"
         raise HTTPException(
             status_code=401,
             detail=f"{auth_label} bearer token required.",
@@ -569,7 +643,7 @@ def require_admin(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(admin_auth),
 ) -> AccessContext:
-    if SETTINGS.is_deployed_environment and not SETTINGS.api_auth_token:
+    if SETTINGS.is_deployed_environment and not SETTINGS.account_auth_enabled and not SETTINGS.api_auth_token:
         raise HTTPException(status_code=500, detail="API_AUTH_TOKEN is required for administrative API routes.")
     return access_from_request(request, credentials, "admin")
 
@@ -578,9 +652,16 @@ def require_journal(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(admin_auth),
 ) -> AccessContext:
-    if SETTINGS.is_deployed_environment and not SETTINGS.journal_auth_token:
+    if SETTINGS.is_deployed_environment and not SETTINGS.account_auth_enabled and not SETTINGS.journal_auth_token:
         raise HTTPException(status_code=500, detail="JOURNAL_AUTH_TOKEN is required for server-side journal routes.")
     return access_from_request(request, credentials, "journal")
+
+
+def require_reader(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(admin_auth),
+) -> AccessContext:
+    return access_from_request(request, credentials, "reader")
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -1010,10 +1091,64 @@ def monitoring() -> dict[str, Any]:
     return {"requestId": request_id(), **build_monitoring_payload()}
 
 
+@router.get("/auth/session", response_model=AccountSessionResponse)
+def auth_session(access: AccessContext | None = Depends(require_reader)) -> dict[str, Any]:
+    account = access_context_or_local(access, "reader")
+    return access_payload(account)
+
+
 @router.get("/admin/session", response_model=AdminSessionResponse)
 def admin_session(access: AccessContext | None = Depends(require_admin)) -> dict[str, Any]:
     admin = access_context_or_local(access, "admin")
     return access_payload(admin)
+
+
+@router.get("/admin/accounts", response_model=OperatorAccountListResponse)
+def admin_accounts(
+    limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    access: AccessContext | None = Depends(require_admin),
+) -> dict[str, Any]:
+    access_context_or_local(access, "admin")
+    return {"requestId": request_id(), **read_operator_accounts(DATABASE_URL, limit=limit, offset=offset)}
+
+
+@router.post("/admin/accounts", response_model=OperatorAccountResponse, status_code=http_status.HTTP_201_CREATED)
+def upsert_operator_account(
+    payload: OperatorAccountUpsertRequest,
+    access: AccessContext | None = Depends(require_admin),
+) -> dict[str, Any]:
+    admin = access_context_or_local(access, "admin")
+    try:
+        account = create_or_update_operator_account(
+            DATABASE_URL,
+            account_key=payload.accountKey,
+            display_name=payload.displayName,
+            email=payload.email,
+            roles=payload.roles,
+            token=payload.token,
+            status=payload.status,
+            privacy_acknowledged=payload.privacyAcknowledged,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    audit_payload = {
+        "accountKey": account["accountKey"],
+        "displayName": account["displayName"],
+        "roles": account["roles"],
+        "status": account["status"],
+        "tokenConfigured": account["tokenConfigured"],
+        "privacyAcknowledged": payload.privacyAcknowledged,
+    }
+    audit_admin_action(
+        admin,
+        "operator_account.upsert",
+        "operator_account",
+        resource_id=account["id"],
+        payload=audit_payload,
+    )
+    return {"requestId": request_id(), "account": account}
 
 
 @router.get("/admin/audit-log", response_model=AdminAuditResponse)
@@ -1065,6 +1200,102 @@ def safeguards() -> dict[str, Any]:
             "privacyPolicy": SETTINGS.privacy_policy_url or None,
             "termsOfUse": SETTINGS.terms_of_use_url or None,
         },
+    }
+
+
+def broker_ai_status() -> dict[str, Any]:
+    config = local_ai_config_from_settings(SETTINGS)
+    return {"status": "enabled" if config.enabled else "disabled", "config": redacted_ai_config(config)}
+
+
+def broker_payload_row(record: Any) -> dict[str, Any]:
+    return {
+        "provider": record.provider,
+        "resource": record.resource,
+        "path": record.path,
+        "payloadSha256": record.payload_sha256,
+        "fetchedAt": record.fetched_at or None,
+        "endpoint": record.endpoint,
+        "sourceUrl": record.source_url,
+        "rowCount": record.row_count,
+        "licenseReference": record.license_reference,
+    }
+
+
+def resolve_broker_payload_path(path: str) -> Path:
+    cache_root = SETTINGS.broker_raw_cache_dir.resolve()
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        candidate = cache_root / candidate
+    resolved = candidate.resolve()
+    if not resolved.is_relative_to(cache_root):
+        raise HTTPException(status_code=422, detail="Broker payload path must stay inside BROKER_RAW_CACHE_DIR.")
+    if not resolved.exists():
+        raise HTTPException(status_code=404, detail="Broker payload was not found.")
+    return resolved
+
+
+@router.get("/broker/status", response_model=BrokerStatusResponse)
+def broker_status() -> dict[str, Any]:
+    return {"requestId": request_id(), **raw_payload_cache_status(SETTINGS.broker_raw_cache_dir), "ai": broker_ai_status()}
+
+
+@router.get("/broker/raw-payloads", response_model=BrokerRawPayloadsResponse)
+def broker_raw_payloads(
+    provider: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict[str, Any]:
+    payloads = list_cached_payloads(SETTINGS.broker_raw_cache_dir, provider=provider, limit=1000)
+    page_records = payloads[offset : offset + limit]
+    page = build_page({"limit": limit, "offset": offset, "returned": len(page_records), "total": len(payloads)})
+    return {"requestId": request_id(), "payloads": [broker_payload_row(record) for record in page_records], "page": page}
+
+
+@router.get("/broker/raw-payload-shape", response_model=BrokerPayloadShapeResponse)
+def broker_raw_payload_shape(
+    path: Annotated[str, Query(min_length=1)],
+    ai_review: Annotated[bool, Query()] = False,
+) -> dict[str, Any]:
+    metadata, payload = load_cached_payload(resolve_broker_payload_path(path))
+    shape = payload_shape(payload)
+    ai_payload = broker_ai_status()
+    if ai_review:
+        config = local_ai_config_from_settings(SETTINGS)
+        try:
+            ai_payload = review_payload_mapping(shape, config)
+        except Exception as exc:
+            ai_payload = {"status": "failure", "config": redacted_ai_config(config), "message": str(exc)}
+    return {"requestId": request_id(), "metadata": metadata, "shape": shape, "ai": ai_payload}
+
+
+@router.get("/normalized/status", response_model=NormalizedStatusResponse)
+def normalized_status() -> dict[str, Any]:
+    counts = normalized_table_counts(DATABASE_URL)
+    return {
+        "requestId": request_id(),
+        "tables": [{"tableName": table_name, "rows": row_count} for table_name, row_count in counts.items()],
+    }
+
+
+@router.get("/normalized/race-entries", response_model=NormalizedRaceEntriesResponse)
+def normalized_race_entries(
+    provider: Annotated[str | None, Query()] = None,
+    race_date: Annotated[date | None, Query()] = None,
+    track: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict[str, Any]:
+    return {
+        "requestId": request_id(),
+        **read_normalized_race_entries(
+            DATABASE_URL,
+            provider=provider,
+            race_date=race_date,
+            track=track,
+            limit=limit,
+            offset=offset,
+        ),
     }
 
 
