@@ -56,6 +56,8 @@ DATABASE_URL="mysql+pymysql://..." ./scripts/staging-release.sh
 
 Set `SEED_SAMPLE_DATA=true` only for an empty demonstration environment.
 
+Set `RUN_ACCEPTANCE_CHECKS=true`, `API_BASE_URL=<staging-api-url>`, and `RELEASE_RECORD_PATH=release-records/staging-release-record.json` when the same command should also run release gates and write release evidence.
+
 ## Staging Compose Rehearsal
 
 Validate the staging manifest shape with:
@@ -111,7 +113,10 @@ The summary endpoint returns `dataFreshness.status`, `ageHours`, and `maxAgeHour
 - The Admin Console loads with `API_AUTH_TOKEN`, and `/api/v1/admin/audit-log` shows the model and prediction actions.
 - `MODEL_ARTIFACT_DIR` should point at durable storage; the staging compose file mounts `/app/model_artifacts` as a named volume.
 - `python scripts/production-readiness-check.py --base-url <api-url> --require-approved-artifact --require-monitoring --require-admin-governance` passes.
+- `python scripts/release-record.py --base-url <api-url> --output release-records/staging-release-record.json` captures commit, migration, model, prediction-run, freshness, monitoring, and audit evidence.
 - Ingestion worker records a successful run.
 - Frontend can load meetings, race cards, predictions, model evaluation, monitoring, and trends.
 - HTTPS domain and CORS origins match exactly.
-- Future visual gate: make the `agent-browser` CLI available on PATH, then run the browser smoke commands from `docs/TESTING.md`.
+- Visual gate: make the `agent-browser` CLI available on PATH, then run `scripts/visual-smoke-check.py` from `docs/TESTING.md`.
+
+The manual GitHub Actions workflow `.github/workflows/staging-acceptance.yml` can run the acceptance gate and upload the release record as an artifact.

@@ -170,6 +170,7 @@ See [docs/API.md](docs/API.md) for versioned backend endpoints, pagination, requ
 See [docs/FRONTEND.md](docs/FRONTEND.md) for the professional workspace, bet journal, theme, and frontend UX notes.
 See [docs/MONITORING.md](docs/MONITORING.md) for drift reports, operator alerts, API metrics, and OpenTelemetry configuration.
 See [docs/ADMIN_GOVERNANCE.md](docs/ADMIN_GOVERNANCE.md) for the admin console, bearer-token roles, audit log, and governance checks.
+See [docs/CI_RELEASE.md](docs/CI_RELEASE.md) for GitHub Actions CI, staging acceptance, release records, and visual smoke gates.
 See [docs/TESTING.md](docs/TESTING.md) for automated backend, data/model, frontend utility, and browser smoke checks.
 See [docs/CLOUD_STAGING.md](docs/CLOUD_STAGING.md) for staging deployment, migration, ingestion worker, and observability notes.
 See [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) for security, safeguards, launch acceptance, and rollback gates.

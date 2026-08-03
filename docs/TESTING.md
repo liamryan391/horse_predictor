@@ -75,10 +75,13 @@ Run the provider-depth check with live weather-provider access:
 When `agent-browser` is available on PATH, use it for the visual pass:
 
 ```powershell
-agent-browser open http://127.0.0.1:5173
-agent-browser wait --load networkidle
-agent-browser snapshot -i
-agent-browser close
+.\.venv\Scripts\python.exe scripts\visual-smoke-check.py --base-url http://127.0.0.1:5173
 ```
 
-Future check note: `agent-browser` is a required visual smoke gate before staging acceptance, but it is not currently required for backend/frontend automated tests.
+Use `--require-admin --admin-token $env:API_AUTH_TOKEN` when the Admin Console should be included in the visual gate.
+
+## CI
+
+GitHub Actions CI now runs backend, frontend, script syntax, Docker Compose config, and diff-hygiene checks on pull requests and key branch pushes.
+
+See [CI_RELEASE.md](CI_RELEASE.md) for CI jobs, staging acceptance, release-record output, and visual gate details.

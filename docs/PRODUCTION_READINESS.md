@@ -29,6 +29,8 @@ Operational checks:
 
 Dependency scanning:
 
+- `.github/workflows/ci.yml` runs backend, frontend, script, Docker Compose, and diff-hygiene checks on pull requests and key branch pushes.
+- `.github/workflows/staging-acceptance.yml` can run release gates and upload a release-record artifact from a staging API URL.
 - `.github/dependabot.yml` checks Python, frontend npm, and GitHub Actions dependencies weekly.
 - Review Dependabot security PRs before routine version bumps.
 - Run `npm.cmd audit` from `frontend/` before release when network access is available.
@@ -98,7 +100,7 @@ Model approval:
 - Approve the reviewed model with `POST /api/v1/admin/model/{model_version_id}/approve`; approval verifies artifact checksum and feature-schema hash.
 - Record a prediction snapshot with `POST /api/v1/admin/prediction-runs?require_approved_model=true`.
 - Confirm the Admin Console audit history includes the snapshot, approval, and prediction-run actions.
-- Record the approved commit SHA and data snapshot window.
+- Record the approved commit SHA and data snapshot window with `scripts/release-record.py` or the staging acceptance workflow artifact.
 
 When production is expected to have an approved model, add `--require-approved-model` to `scripts/production-readiness-check.py`.
 When production is expected to serve from a persisted artifact, add `--require-approved-artifact`.
@@ -123,4 +125,6 @@ Rollback:
 
 ## Agent Browser Gate
 
-When `agent-browser` is available on PATH, run the browser smoke commands from `docs/TESTING.md` against the deployed frontend before marking launch acceptance complete.
+When `agent-browser` is available on PATH, run `scripts/visual-smoke-check.py` from `docs/TESTING.md` against the deployed frontend before marking launch acceptance complete.
+
+See [CI_RELEASE.md](CI_RELEASE.md) for the full Phase 18 CI, staging acceptance, release-record, and visual gate workflow.

@@ -5,6 +5,7 @@ __pycache__/
 *.py[cod]
 *.db
 model_artifacts/
+release-records/
 .streamlit/
 node_modules/
 frontend/node_modules/

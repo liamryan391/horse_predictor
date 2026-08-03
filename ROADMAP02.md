@@ -208,18 +208,26 @@ Goal: turn the current manual validation list into repeatable automation.
 - Add Dependabot review workflow notes.
 - Block merge when tests fail.
 
+Current inspection: `.github/workflows/ci.yml` now runs backend compile/migrations/tests, frontend install/tests/build, shell syntax, Docker Compose config, and diff-hygiene checks on PRs into `development`/`main` and pushes to key branches. `.github/dependabot.yml` already covers pip, npm, and GitHub Actions updates, and the PR template now asks for CI, visual, release-record, and token-handling checks.
+
 ### 18.2 Browser Verification
 
 - Add `agent-browser` visual smoke checks once local preview access is stable.
 - Cover workspace, race card, evaluation, journal, responsible-use page, and mobile viewport.
+
+Current inspection: `scripts/visual-smoke-check.py` now uses `agent-browser` to verify the frontend has content, has no framework error overlay, and can navigate Workspace, Bet Journal, Responsible Use, and Admin when an admin token is supplied. The testing docs now treat this as the visual gate for UI or staging acceptance work.
 
 ### 18.3 Release Checklist
 
 - Add a single release command or workflow for staging acceptance.
 - Record commit SHA, migration head, approved model id, prediction-run id, and data freshness at release time.
 
+Current inspection: `.github/workflows/staging-acceptance.yml` can run release-grade readiness gates and upload a JSON release record. `scripts/staging-release.ps1` and `scripts/staging-release.sh` can also run acceptance gates and write release evidence when `RUN_ACCEPTANCE_CHECKS`, `API_BASE_URL`, and `RELEASE_RECORD_PATH` are set. `scripts/release-record.py` captures commit, Alembic state, readiness, freshness, monitoring, approved model artifact, latest prediction run, ingestion rows, and optional admin governance audit evidence.
+
 ## Recommended Next Phase
 
-Start with Phase 18: CI, Release, And Visual Gates.
+Roadmap02 Phases 12 through 18 are now implemented. Choose the next build from `FUTURE_ROADMAP.md`.
 
-Reason: Phase 17 now gives operators a controlled admin surface and audit history for model and prediction actions. The next platform risk is repeatability: CI, visual verification, release records, and staging gates should make the manual validation list harder to skip.
+Recommended next direction: account-backed authentication and user ownership.
+
+Reason: Phase 18 gives the project repeatable CI and release gates. The next platform risk is replacing shared bearer tokens and operator-local journal ownership with named users, durable roles, account-scoped bet history, and stronger admin governance.

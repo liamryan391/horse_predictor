@@ -1,6 +1,6 @@
 # Future Roadmap
 
-This document captures longer-term development ideas for Horse Predictor after `ROADMAP02.md`. It is intentionally broader than the next build roadmap and should be reviewed again after Phase 12 through Phase 18 are complete.
+This document captures longer-term development ideas for Horse Predictor after `ROADMAP02.md`. Phase 12 through Phase 18 are now implemented, so future planning should prioritize the items here by product risk, release readiness, and operator value.
 
 ## Future Development Principles
 

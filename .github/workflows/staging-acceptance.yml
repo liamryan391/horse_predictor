@@ -1,0 +1,81 @@
+name: Staging Acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: "Staging API base URL"
+        required: true
+        type: string
+      allow_stale:
+        description: "Allow stale data freshness during rehearsal"
+        required: false
+        default: false
+        type: boolean
+      require_policy_links:
+        description: "Require responsible gambling, privacy, and terms links"
+        required: false
+        default: true
+        type: boolean
+      require_enriched_data:
+        description: "Require enrichment coverage gate"
+        required: false
+        default: true
+        type: boolean
+      require_no_critical_alerts:
+        description: "Fail when monitoring has critical or blocked alerts"
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  acceptance:
+    name: Acceptance Gate
+    runs-on: ubuntu-latest
+    env:
+      API_AUTH_TOKEN: ${{ secrets.API_AUTH_TOKEN }}
+      ADMIN_ACTOR: github-actions-staging-acceptance
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+
+      - name: Build acceptance flags
+        id: flags
+        shell: bash
+        run: |
+          FLAGS="--require-approved-model --require-approved-artifact --require-prediction-run --require-monitoring --require-admin-governance --admin-actor github-actions-staging-acceptance"
+          if [ "${{ inputs.allow_stale }}" = "true" ]; then FLAGS="$FLAGS --allow-stale"; fi
+          if [ "${{ inputs.require_policy_links }}" = "true" ]; then FLAGS="$FLAGS --require-policy-links"; fi
+          if [ "${{ inputs.require_enriched_data }}" = "true" ]; then FLAGS="$FLAGS --require-enriched-data"; fi
+          if [ "${{ inputs.require_no_critical_alerts }}" = "true" ]; then FLAGS="$FLAGS --require-no-critical-alerts"; fi
+          echo "flags=$FLAGS" >> "$GITHUB_OUTPUT"
+
+      - name: Run production readiness gate
+        run: >-
+          python scripts/production-readiness-check.py
+          --base-url "${{ inputs.api_base_url }}"
+          ${{ steps.flags.outputs.flags }}
+
+      - name: Write release record
+        run: >-
+          python scripts/release-record.py
+          --base-url "${{ inputs.api_base_url }}"
+          --admin-token "$API_AUTH_TOKEN"
+          --admin-actor github-actions-staging-acceptance
+          --output release-records/staging-release-record.json
+
+      - name: Upload release record
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-release-record
+          path: release-records/staging-release-record.json
+          if-no-files-found: error
