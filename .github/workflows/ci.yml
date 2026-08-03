@@ -20,8 +20,8 @@ jobs:
     name: Backend
     runs-on: ubuntu-latest
     env:
-      DATABASE_URL: sqlite:///${{ runner.temp }}/horse_predictor_ci.db
-      MODEL_ARTIFACT_DIR: ${{ runner.temp }}/model_artifacts
+      DATABASE_URL: sqlite:///horse_predictor_ci.db
+      MODEL_ARTIFACT_DIR: model_artifacts
     steps:
       - name: Checkout
         uses: actions/checkout@v4
