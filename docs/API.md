@@ -40,9 +40,13 @@ Write endpoints:
 
 Administrative endpoints:
 
+- `GET /api/v1/admin/session`
+- `GET /api/v1/admin/governance`
+- `GET /api/v1/admin/audit-log`
 - `POST /api/v1/admin/seed-sample`
 - `POST /api/v1/admin/model/evaluation`
 - `POST /api/v1/admin/model/{model_version_id}/approve`
+- `POST /api/v1/admin/model/{model_version_id}/supersede`
 - `POST /api/v1/admin/prediction-runs`
 
 The same endpoints are also mounted under `/api/...` for current frontend compatibility.
@@ -101,14 +105,18 @@ Administrative endpoints use bearer-token auth when `API_AUTH_TOKEN` is set:
 Invoke-WebRequest -Method POST -Headers @{ Authorization = "Bearer $env:API_AUTH_TOKEN" } -UseBasicParsing "http://127.0.0.1:8000/api/v1/admin/seed-sample"
 ```
 
+Server-side journal endpoints use `JOURNAL_AUTH_TOKEN` when configured. In local development only, empty admin and journal tokens fall back to a `local-dev` operator context so the app remains runnable before secrets exist.
+
 For staging or production, `APP_ENV=staging` or `APP_ENV=production` requires:
 
 - managed SQL `DATABASE_URL`
 - HTTPS `BACKEND_CORS_ORIGINS`
 - explicit `ALLOWED_HOSTS`
 - non-placeholder `API_AUTH_TOKEN` with at least 32 characters
+- non-placeholder `JOURNAL_AUTH_TOKEN` with at least 32 characters
+- non-empty `JOURNAL_ACCOUNT_KEY`
 
-The API also rejects oversized requests through `MAX_REQUEST_BODY_BYTES`, sanitizes incoming `X-Request-ID` values, applies baseline security headers, and uses constant-time comparison for administrative bearer tokens.
+The API also rejects oversized requests through `MAX_REQUEST_BODY_BYTES`, sanitizes incoming `X-Request-ID` values, applies baseline security headers, and uses constant-time comparison for administrative and journal bearer tokens.
 
 ## Rate Limiting
 
@@ -155,6 +163,8 @@ See [MONITORING.md](MONITORING.md) for thresholds and readiness gates.
 
 `GET /api/v1/model/registry` returns persisted model evaluation snapshots and artifact metadata. Use `POST /api/v1/admin/model/evaluation` to record the current candidate metrics and write a model artifact, then `POST /api/v1/admin/model/{model_version_id}/approve` to approve a reviewed version after artifact integrity checks pass. See [MODEL_OPERATIONS.md](MODEL_OPERATIONS.md) for the release workflow.
 
+Use `POST /api/v1/admin/model/{model_version_id}/supersede` to remove a model version from active consideration without deleting its audit history.
+
 ## Prediction Runs
 
 `GET /api/v1/prediction-runs` lists persisted scoring snapshots, and `GET /api/v1/prediction-runs/{prediction_run_id}` returns the runner-level rows for one run.
@@ -163,7 +173,7 @@ Use `POST /api/v1/admin/prediction-runs` to record the current scored race card 
 
 ## Bet Journal
 
-`GET /api/v1/bet-journal` lists server-side journal rows from `user_bets`. The local app currently uses the operator-local account key, and future authentication should replace that with user-owned accounts before personal bet history is stored.
+`GET /api/v1/bet-journal` lists server-side journal rows from `user_bets`. The access context supplies the account key: local development uses `local`, admin tokens use `admin`, and journal tokens use `JOURNAL_ACCOUNT_KEY`. Future authentication should replace shared-token account keys with user-owned accounts before personal bet history is stored.
 
 Create, settle, and remove rows with:
 
@@ -174,3 +184,9 @@ Invoke-WebRequest -Method DELETE -UseBasicParsing "http://127.0.0.1:8000/api/v1/
 ```
 
 Rows can store manual runner context, stake, placed odds, closing odds, settlement status, notes, and optional links to prediction runs, prediction-run entries, model versions, or normalized race entries.
+
+## Admin Governance
+
+`GET /api/v1/admin/governance` returns the operator session, readiness, summary, monitoring snapshot, recent ingestion rows, model registry rows, prediction runs, and audit events in one console payload.
+
+Admin write routes append rows to `admin_audit_events` with actor, roles, action, resource, request id, status, detail, payload, and timestamp. See [ADMIN_GOVERNANCE.md](ADMIN_GOVERNANCE.md) for the full Phase 17 workflow.

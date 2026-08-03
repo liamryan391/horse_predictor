@@ -28,12 +28,13 @@ The initial normalized schema adds:
 - `odds_snapshots`
 - `user_bets`
 - `api_ingestion_runs`
+- `admin_audit_events`
 - `model_versions`
 - `prediction_runs`
 - `prediction_run_entries`
 - `model_evaluation_results`
 
-The normalized tables give future phases a place to store provider identifiers, race-card entities, odds snapshots, model versions, prediction run headers, runner-level prediction entries, evaluation metrics, and user bet history without overloading the flat model tables.
+The normalized tables give future phases a place to store provider identifiers, race-card entities, odds snapshots, model versions, prediction run headers, runner-level prediction entries, evaluation metrics, admin audit history, and user bet history without overloading the flat model tables.
 
 `model_versions` also stores artifact-serving metadata:
 
@@ -52,6 +53,8 @@ The database stores artifact references and integrity values; the model artifact
 - `prediction_run_id`, `prediction_run_entry_id`, `model_version_id`, and nullable `race_entry_id` provide linkage points for model and result audits.
 - `notes` and `updated_at` keep operator context without storing personal contact data.
 
+`admin_audit_events` backs the Phase 17 governance log. It records the actor, roles, action, resource, request id, status, detail, payload JSON, and creation time for governed admin writes.
+
 ## Migrations
 
 Run migrations after installing dependencies:
@@ -66,7 +69,7 @@ Linux/macOS:
 .venv/bin/python -m alembic upgrade head
 ```
 
-The first migration is intentionally safe against an existing local SQLite database. It creates missing tables with `checkfirst=True` and records the Alembic version. Later migrations add job locks, prediction-run entries, model artifact integrity columns, and server-side Bet Journal fields.
+The first migration is intentionally safe against an existing local SQLite database. It creates missing tables with `checkfirst=True` and records the Alembic version. Later migrations add job locks, prediction-run entries, model artifact integrity columns, server-side Bet Journal fields, and admin audit events.
 
 ## Ingestion Writes
 

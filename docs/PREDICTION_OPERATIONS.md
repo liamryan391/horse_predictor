@@ -1,6 +1,6 @@
 # Prediction Operations
 
-Phase 11 adds persisted prediction-run snapshots. Predictions are no longer only transient API responses; an operator can record the scored race card and inspect the stored run later.
+Phase 11 adds persisted prediction-run snapshots. Predictions are no longer only transient API responses; an operator can record the scored race card and inspect the stored run later. Phase 17 records admin-triggered prediction snapshots in the governance audit log.
 
 ## Prediction Run History
 
@@ -58,6 +58,8 @@ Invoke-WebRequest `
   -UseBasicParsing `
   "http://127.0.0.1:8000/api/v1/admin/prediction-runs?require_approved_model=true"
 ```
+
+The React Admin Console runs this approved-model path by default and writes an `admin_audit_events` row for the captured run.
 
 ## Launch Gate
 

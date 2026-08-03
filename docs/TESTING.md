@@ -14,10 +14,12 @@ The suite covers:
 
 - API contract shapes and filtering
 - server-side bet journal CRUD contracts
+- admin session, governance snapshot, audit-log, and model supersede contracts
 - prediction-run snapshot persistence and API contracts
 - prediction leakage and chronological holdout behavior
 - provider fixture flattening and validation summaries
 - SQLite repository upsert behavior and bet journal persistence
+- admin audit persistence and audit-table migrations
 - Alembic upgrade/downgrade roundtrip
 - sample data quality gates
 - enrichment coverage and course/weather URL checks
@@ -62,6 +64,7 @@ Add `--require-prediction-run` when acceptance should also prove that at least o
 Add `--require-enriched-data` when acceptance should also prove that core enrichment fields meet the configured coverage threshold.
 Add `--require-monitoring` when acceptance should also prove that monitoring metrics and drift checks are populated.
 Add `--require-no-critical-alerts` when acceptance should fail on critical or blocked monitoring alerts.
+Add `--require-admin-governance` when acceptance should also prove that admin session, governance, and audit-log endpoints work with `API_AUTH_TOKEN`.
 
 Run the provider-depth check with live weather-provider access:
 

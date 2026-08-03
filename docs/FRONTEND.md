@@ -8,6 +8,7 @@ The app now opens directly into the workspace and includes:
 
 - Workspace
 - Bet Journal
+- Admin
 - Methodology
 - Responsible Use
 - Contact
@@ -61,6 +62,12 @@ Journal metrics are intentionally separate from model-evaluation metrics. Server
 ## Monitoring
 
 Phase 16 adds a Monitoring tab inside the workspace. It displays the `/api/v1/monitoring` snapshot with operator metrics, active alerts, feature drift, prediction drift, and API traffic counters. Status pills reuse the model/data-quality tone system so warning and critical states remain visible without changing prediction copy into betting advice.
+
+## Admin Console
+
+Phase 17 adds an Admin tab for governed operations. It stores an optional bearer token and actor label in browser local storage, then calls the admin session, governance, and audit-log endpoints.
+
+The console exposes confirmation-gated actions for model snapshot capture, model approval, model supersede, approved-model prediction-run capture, and sample seeding. It also shows readiness, monitoring, ingestion rows, model registry rows, prediction runs, and recent audit events.
 
 ## Responsible Use
 

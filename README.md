@@ -6,9 +6,9 @@ Professional horse racing intelligence platform powered by API ingestion, MySQL-
 
 - `data_pipeline.py`: pulls sample or API data and writes SQL tables.
 - `racing_storage.py`: SQLAlchemy storage layer for MySQL in production and SQLite for local development.
-- `api.py`: FastAPI service for predictions, prediction-run history, bet journal records, trends, race cards, data quality, monitoring, and ingestion health.
+- `api.py`: FastAPI service for predictions, prediction-run history, bet journal records, trends, race cards, data quality, monitoring, admin governance, and ingestion health.
 - `monitoring.py`: drift checks and in-process API metrics used by the monitoring endpoint.
-- `frontend/`: React + TypeScript racing workspace with rankings, race centre, race cards, evaluation, monitoring, provider freshness, and bet journal pages.
+- `frontend/`: React + TypeScript racing workspace with rankings, race centre, race cards, evaluation, monitoring, provider freshness, bet journal, and admin console pages.
 - `horse_racing_app.py`: legacy Streamlit dashboard kept for quick internal checks.
 
 ## Database choice
@@ -156,7 +156,7 @@ Phase 13 also derives model enrichment fields from the above data: course countr
 
 ## Notes
 
-This is decision-support software, not guaranteed betting advice. Model quality depends on the amount, accuracy, and freshness of historical results. For production, add authentication, managed hosting, larger provider history, and governed model promotion.
+This is decision-support software, not guaranteed betting advice. Model quality depends on the amount, accuracy, and freshness of historical results. For production, replace shared bearer tokens with full user authentication, managed hosting, larger provider history, and governed model promotion.
 
 See [ROADMAP.md](ROADMAP.md) for the planned path from prototype to production-ready platform.
 See [ROADMAP02.md](ROADMAP02.md) for the next build roadmap after Phase 11 and [FUTURE_ROADMAP.md](FUTURE_ROADMAP.md) for longer-term development ideas.
@@ -169,6 +169,7 @@ See [docs/MODELING.md](docs/MODELING.md) for leakage checks, holdout evaluation,
 See [docs/API.md](docs/API.md) for versioned backend endpoints, pagination, request IDs, and API security notes.
 See [docs/FRONTEND.md](docs/FRONTEND.md) for the professional workspace, bet journal, theme, and frontend UX notes.
 See [docs/MONITORING.md](docs/MONITORING.md) for drift reports, operator alerts, API metrics, and OpenTelemetry configuration.
+See [docs/ADMIN_GOVERNANCE.md](docs/ADMIN_GOVERNANCE.md) for the admin console, bearer-token roles, audit log, and governance checks.
 See [docs/TESTING.md](docs/TESTING.md) for automated backend, data/model, frontend utility, and browser smoke checks.
 See [docs/CLOUD_STAGING.md](docs/CLOUD_STAGING.md) for staging deployment, migration, ingestion worker, and observability notes.
 See [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) for security, safeguards, launch acceptance, and rollback gates.

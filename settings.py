@@ -46,6 +46,8 @@ class Settings:
     sample_historical_csv: Path
     sample_current_csv: Path
     api_auth_token: str = ""
+    journal_auth_token: str = ""
+    journal_account_key: str = "journal-user"
     api_rate_limit_per_minute: int = 240
     data_freshness_max_age_hours: float = 24.0
     log_format: str = "plain"
@@ -92,6 +94,15 @@ class Settings:
             token_value = self.api_auth_token.lower()
             if len(self.api_auth_token) < 32 or token_value in weak_tokens or "replace" in token_value:
                 errors.append("API_AUTH_TOKEN must be a non-placeholder secret with at least 32 characters.")
+        if self.is_deployed_environment and not self.journal_auth_token:
+            errors.append("JOURNAL_AUTH_TOKEN must be set before enabling server-side journal routes.")
+        if self.is_deployed_environment and self.journal_auth_token:
+            weak_tokens = {"replace-with-a-long-random-token", "replace_me", "changeme", "change-me"}
+            token_value = self.journal_auth_token.lower()
+            if len(self.journal_auth_token) < 32 or token_value in weak_tokens or "replace" in token_value:
+                errors.append("JOURNAL_AUTH_TOKEN must be a non-placeholder secret with at least 32 characters.")
+        if not self.journal_account_key.strip():
+            errors.append("JOURNAL_ACCOUNT_KEY must not be empty.")
         if self.max_request_body_bytes < 1024:
             errors.append("MAX_REQUEST_BODY_BYTES must be at least 1024.")
         if not 0 < self.monitoring_drift_warning_threshold <= self.monitoring_drift_critical_threshold <= 1:
@@ -151,6 +162,8 @@ def get_settings() -> Settings:
         sample_historical_csv=Path(os.getenv("SAMPLE_HISTORICAL_CSV", BASE_DIR / "sample_historical_data.csv")),
         sample_current_csv=Path(os.getenv("SAMPLE_CURRENT_CSV", BASE_DIR / "sample_current_races.csv")),
         api_auth_token=os.getenv("API_AUTH_TOKEN", ""),
+        journal_auth_token=os.getenv("JOURNAL_AUTH_TOKEN", ""),
+        journal_account_key=os.getenv("JOURNAL_ACCOUNT_KEY", "journal-user"),
         api_rate_limit_per_minute=int(os.getenv("API_RATE_LIMIT_PER_MINUTE", "240")),
         data_freshness_max_age_hours=float(os.getenv("DATA_FRESHNESS_MAX_AGE_HOURS", "24")),
         log_format=os.getenv("LOG_FORMAT", "json" if deployed else "plain"),

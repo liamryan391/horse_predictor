@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useMemo, useState, type FormEvent, type ReactNod
 import { createRoot } from "react-dom/client";
 import {
   Activity,
+  Archive,
   BarChart3,
   BookOpen,
   CalendarDays,
@@ -9,6 +10,8 @@ import {
   Database,
   ExternalLink,
   Flag,
+  KeyRound,
+  LockKeyhole,
   Moon,
   RefreshCw,
   Scale,
@@ -39,7 +42,7 @@ import {
 } from "./raceCentre";
 import "./styles.css";
 
-type Page = "workspace" | "journal" | "methodology" | "responsible-use" | "contact";
+type Page = "workspace" | "journal" | "admin" | "methodology" | "responsible-use" | "contact";
 type WorkspaceView = "rankings" | "race-centre" | "race-card" | "evaluation" | "monitoring" | "trends";
 
 type DatabaseSummary = {
@@ -157,6 +160,23 @@ type PredictionRun = {
   topRunner: string | null;
   topWinProbability: number | null;
   topValueEdge: number | null;
+};
+
+type ModelSnapshotResponse = {
+  requestId: string;
+  model: ModelRegistryRow;
+};
+
+type PredictionRunResponse = {
+  requestId: string;
+  run: PredictionRun;
+  entries: Prediction[];
+  page: PageMeta;
+};
+
+type SeedSampleResponse = {
+  requestId: string;
+  seeded: Record<string, number>;
 };
 
 type EvaluationMetrics = {
@@ -332,6 +352,61 @@ type BetJournalDeleteResponse = {
   deleted: boolean;
 };
 
+type Readiness = {
+  requestId: string;
+  status: string;
+  databaseReady: boolean;
+  modelReady: boolean;
+  counts: Record<string, number>;
+  message: string | null;
+};
+
+type IngestionRow = {
+  table_name: string | null;
+  source: string | null;
+  row_count: number | null;
+  status: string | null;
+  message: string | null;
+  ingested_at: string | null;
+};
+
+type AdminSession = {
+  requestId: string;
+  actor: string;
+  roles: string[];
+  environment: string;
+  adminAuthRequired: boolean;
+  journalAuthRequired: boolean;
+  adminTokenConfigured: boolean;
+  journalTokenConfigured: boolean;
+};
+
+type AdminAuditEvent = {
+  id: number;
+  actor: string;
+  roles: string[];
+  action: string;
+  resourceType: string;
+  resourceId: string | null;
+  requestId: string | null;
+  status: string;
+  detail: string | null;
+  payload: Record<string, unknown> | null;
+  createdAt: string | null;
+};
+
+type AdminGovernance = {
+  requestId: string;
+  session: AdminSession;
+  readiness: Readiness;
+  summary: Summary;
+  monitoring: Monitoring;
+  ingestion: IngestionRow[];
+  models: ModelRegistryRow[];
+  predictionRuns: PredictionRun[];
+  auditEvents: AdminAuditEvent[];
+};
+
 type ProductSafeguards = {
   requestId: string;
   responsibleUseNotice: string;
@@ -345,6 +420,7 @@ type ProductSafeguards = {
 const navigation: { page: Page; label: string; icon: LucideIcon }[] = [
   { page: "workspace", label: "Workspace", icon: BarChart3 },
   { page: "journal", label: "Bet Journal", icon: WalletCards },
+  { page: "admin", label: "Admin", icon: LockKeyhole },
   { page: "methodology", label: "Methodology", icon: BookOpen },
   { page: "responsible-use", label: "Responsible Use", icon: ShieldCheck },
   { page: "contact", label: "Contact", icon: UserRound }
@@ -364,6 +440,8 @@ const API_PREFIX = "/api/v1";
 const TRACK_FILTER_KEY = "horse-predictor-track-filter";
 const THEME_KEY = "horse-predictor-theme";
 const BETS_KEY = "horse-predictor-bets";
+const ACCESS_TOKEN_KEY = "horse-predictor-access-token";
+const ACCESS_ACTOR_KEY = "horse-predictor-access-actor";
 const DEFAULT_SAFEGUARDS: ProductSafeguards = {
   requestId: "-",
   responsibleUseNotice: "Horse Predictor is decision-support software, not betting advice or a guaranteed-return system.",
@@ -446,26 +524,47 @@ function localStorageValue(key: string, fallback: string) {
   }
 }
 
-async function apiGet<T>(path: string): Promise<T> {
-  return apiRequest<T>(path);
+type ApiAuth = {
+  token?: string;
+  actor?: string;
+};
+
+function storedAccessAuth(): ApiAuth {
+  return {
+    token: localStorageValue(ACCESS_TOKEN_KEY, ""),
+    actor: localStorageValue(ACCESS_ACTOR_KEY, "")
+  };
 }
 
-async function apiPost<T>(path: string, body: unknown): Promise<T> {
-  return apiRequest<T>(path, { method: "POST", body: JSON.stringify(body) });
+async function apiGet<T>(path: string, auth?: ApiAuth): Promise<T> {
+  return apiRequest<T>(path, {}, auth);
 }
 
-async function apiPatch<T>(path: string, body: unknown): Promise<T> {
-  return apiRequest<T>(path, { method: "PATCH", body: JSON.stringify(body) });
+async function apiPost<T>(path: string, body?: unknown, auth?: ApiAuth): Promise<T> {
+  return apiRequest<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) }, auth);
 }
 
-async function apiDelete<T>(path: string): Promise<T> {
-  return apiRequest<T>(path, { method: "DELETE" });
+async function apiPatch<T>(path: string, body: unknown, auth?: ApiAuth): Promise<T> {
+  return apiRequest<T>(path, { method: "PATCH", body: JSON.stringify(body) }, auth);
 }
 
-async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function apiDelete<T>(path: string, auth?: ApiAuth): Promise<T> {
+  return apiRequest<T>(path, { method: "DELETE" }, auth);
+}
+
+async function apiRequest<T>(path: string, init: RequestInit = {}, auth: ApiAuth = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
+  }
+  const token = auth.token?.trim();
+  const actor = auth.actor?.trim();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  if (actor) {
+    headers.set("X-Admin-Actor", actor);
+    headers.set("X-Journal-Actor", actor);
   }
   const response = await fetch(`${API_BASE_URL}${API_PREFIX}${path}`, { ...init, headers });
   if (!response.ok) {
@@ -541,6 +640,7 @@ function App() {
       <main>
         {page === "workspace" && <Workspace />}
         {page === "journal" && <BetJournal />}
+        {page === "admin" && <AdminConsole />}
         {page === "methodology" && <MethodologyPage />}
         {page === "responsible-use" && <ResponsibleUsePage />}
         {page === "contact" && <ContactPage />}
@@ -1709,7 +1809,7 @@ function BetJournal() {
     setLoading(true);
     setError(null);
     try {
-      const response = await apiGet<BetJournalListResponse>("/bet-journal?limit=200");
+      const response = await apiGet<BetJournalListResponse>("/bet-journal?limit=200", storedAccessAuth());
       setBets(response.bets);
       setJournalMode("server");
     } catch (err) {
@@ -1740,7 +1840,7 @@ function BetJournal() {
     setError(null);
     try {
       if (journalMode === "server") {
-        const response = await apiPost<BetJournalEntryResponse>("/bet-journal", payload);
+        const response = await apiPost<BetJournalEntryResponse>("/bet-journal", payload, storedAccessAuth());
         setBets((current) => [response.bet, ...current.filter((bet) => bet.id !== response.bet.id)]);
       } else if (!addLocalBet()) {
         return;
@@ -1761,7 +1861,7 @@ function BetJournal() {
     if (journalMode === "server" && typeof id === "number") {
       setError(null);
       try {
-        const response = await apiPatch<BetJournalEntryResponse>(`/bet-journal/${id}`, { status });
+        const response = await apiPatch<BetJournalEntryResponse>(`/bet-journal/${id}`, { status }, storedAccessAuth());
         setBets((current) => current.map((bet) => (bet.id === id ? response.bet : bet)));
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unable to update bet status.");
@@ -1775,7 +1875,7 @@ function BetJournal() {
     if (journalMode === "server" && typeof id === "number") {
       setError(null);
       try {
-        await apiDelete<BetJournalDeleteResponse>(`/bet-journal/${id}`);
+        await apiDelete<BetJournalDeleteResponse>(`/bet-journal/${id}`, storedAccessAuth());
         setBets((current) => current.filter((bet) => bet.id !== id));
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unable to remove bet.");
@@ -1931,6 +2031,421 @@ function BetJournal() {
       </div>
     </section>
   );
+}
+
+function AdminConsole() {
+  const [token, setToken] = useState(() => localStorageValue(ACCESS_TOKEN_KEY, ""));
+  const [actor, setActor] = useState(() => localStorageValue(ACCESS_ACTOR_KEY, ""));
+  const [session, setSession] = useState<AdminSession | null>(null);
+  const [governance, setGovernance] = useState<AdminGovernance | null>(null);
+  const [auditEvents, setAuditEvents] = useState<AdminAuditEvent[]>([]);
+  const [selectedModelId, setSelectedModelId] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const auth = useMemo(() => ({ token, actor }), [token, actor]);
+
+  async function loadAdmin(nextAuth = auth) {
+    setLoading(true);
+    setError(null);
+    try {
+      const [sessionResult, governanceResult, auditResult] = await Promise.all([
+        apiGet<AdminSession>("/admin/session", nextAuth),
+        apiGet<AdminGovernance>("/admin/governance", nextAuth),
+        apiGet<{ requestId: string; events: AdminAuditEvent[]; page: PageMeta }>("/admin/audit-log?limit=25", nextAuth)
+      ]);
+      setSession(sessionResult);
+      setGovernance(governanceResult);
+      setAuditEvents(auditResult.events);
+      setSelectedModelId((current) => current || String(governanceResult.models[0]?.id ?? ""));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load admin governance data.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadAdmin();
+  }, []);
+
+  function saveAccess(event: FormEvent) {
+    event.preventDefault();
+    localStorage.setItem(ACCESS_TOKEN_KEY, token.trim());
+    localStorage.setItem(ACCESS_ACTOR_KEY, actor.trim());
+    setNotice("Access details saved for this browser.");
+    void loadAdmin({ token: token.trim(), actor: actor.trim() });
+  }
+
+  function clearAccess() {
+    localStorage.removeItem(ACCESS_TOKEN_KEY);
+    localStorage.removeItem(ACCESS_ACTOR_KEY);
+    setToken("");
+    setActor("");
+    setNotice("Access details cleared.");
+    void loadAdmin({ token: "", actor: "" });
+  }
+
+  async function runAdminAction(label: string, confirmText: string, action: () => Promise<unknown>) {
+    if (!window.confirm(confirmText)) {
+      return;
+    }
+    setBusyAction(label);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await action();
+      const modelId = (result as { model?: { id?: number } }).model?.id;
+      if (modelId) {
+        setSelectedModelId(String(modelId));
+      }
+      setNotice(`${label} completed.`);
+      await loadAdmin(auth);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `${label} failed.`);
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  const models = governance?.models ?? [];
+  const latestModel = models[0];
+  const selectedModel = models.find((model) => String(model.id) === selectedModelId);
+  const canUseSelectedModel = Boolean(selectedModelId);
+  const latestAudit = auditEvents[0];
+
+  return (
+    <section className="journal-page admin-page">
+      <div className="workspace-header">
+        <div>
+          <div className="eyebrow">Admin Console</div>
+          <h1>Governance desk</h1>
+          <p>Controlled model operations, readiness checks, prediction snapshots, and audit history.</p>
+        </div>
+        <button className="icon-action" onClick={() => void loadAdmin()} disabled={loading} title="Refresh admin console">
+          <RefreshCw size={18} />
+          Refresh
+        </button>
+      </div>
+
+      {error && (
+        <div className="error-banner">
+          <strong>Admin error</strong>
+          <span>{error}</span>
+          <button className="icon-action" onClick={() => void loadAdmin()}>
+            <RefreshCw size={16} />
+            Retry
+          </button>
+        </div>
+      )}
+
+      {notice && (
+        <div className="success-banner">
+          <strong>Admin update</strong>
+          <span>{notice}</span>
+        </div>
+      )}
+
+      <form className="admin-token-panel" onSubmit={saveAccess}>
+        <div className="panel-title">
+          <KeyRound size={18} />
+          <span>Access</span>
+        </div>
+        <label>
+          Bearer token
+          <input
+            type="password"
+            value={token}
+            onChange={(event) => setToken(event.target.value)}
+            autoComplete="off"
+          />
+        </label>
+        <label>
+          Actor
+          <input value={actor} onChange={(event) => setActor(event.target.value)} placeholder="operator name" />
+        </label>
+        <div className="admin-token-actions">
+          <button className="primary-action" type="submit">
+            <KeyRound size={18} />
+            Save
+          </button>
+          <button className="icon-action" type="button" onClick={clearAccess}>
+            <Trash2 size={18} />
+            Clear
+          </button>
+        </div>
+      </form>
+
+      <div className="metric-row">
+        <Metric label="Environment" value={session?.environment ?? "-"} />
+        <Metric label="Actor" value={session?.actor ?? "-"} />
+        <Metric label="Roles" value={session?.roles.join(", ") ?? "-"} />
+        <Metric label="Readiness" value={governance?.readiness.status ?? "-"} />
+        <Metric label="Monitoring" value={governance ? `${governance.monitoring.status} / ${governance.monitoring.alerts.length} alerts` : "-"} />
+        <Metric label="Models" value={formatInteger(models.length)} />
+        <Metric label="Prediction runs" value={formatInteger(governance?.predictionRuns.length)} />
+        <Metric label="Latest audit" value={latestAudit ? latestAudit.action : "-"} />
+      </div>
+
+      <section className="admin-grid">
+        <div className="admin-action-panel">
+          <div className="evaluation-header">
+            <ShieldCheck size={20} />
+            <div>
+              <h2>Governed Actions</h2>
+              <span>{selectedModel ? `Selected model #${selectedModel.id} / ${selectedModel.status}` : "Select or capture a model snapshot."}</span>
+            </div>
+          </div>
+
+          <div className="admin-action-controls">
+            <label>
+              Model version
+              <select value={selectedModelId} onChange={(event) => setSelectedModelId(event.target.value)}>
+                <option value="">No model selected</option>
+                {models.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    #{model.id} / {model.status} / {formatDate(model.createdAt)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="admin-selected-model">
+              <span className={`status-pill ${statusTone(selectedModel?.status)}`}>{selectedModel?.status ?? "none"}</span>
+              <small>
+                Artifact {selectedModel?.artifactReady ? "ready" : "missing"} / latest #{latestModel?.id ?? "-"}
+              </small>
+            </div>
+          </div>
+
+          <div className="admin-action-row">
+            <button
+              className="icon-action"
+              type="button"
+              disabled={Boolean(busyAction)}
+              onClick={() =>
+                void runAdminAction(
+                  "Capture model snapshot",
+                  "Capture a new model evaluation snapshot and artifact?",
+                  () => apiPost<ModelSnapshotResponse>("/admin/model/evaluation", undefined, auth)
+                )
+              }
+            >
+              <Activity size={18} />
+              Snapshot
+            </button>
+            <button
+              className="icon-action"
+              type="button"
+              disabled={Boolean(busyAction) || !canUseSelectedModel}
+              onClick={() =>
+                void runAdminAction(
+                  "Approve model",
+                  `Approve model version #${selectedModelId} for artifact-backed serving?`,
+                  () => apiPost<ModelSnapshotResponse>(`/admin/model/${selectedModelId}/approve`, undefined, auth)
+                )
+              }
+            >
+              <ShieldCheck size={18} />
+              Approve
+            </button>
+            <button
+              className="icon-action danger-action"
+              type="button"
+              disabled={Boolean(busyAction) || !canUseSelectedModel}
+              onClick={() =>
+                void runAdminAction(
+                  "Supersede model",
+                  `Supersede model version #${selectedModelId}?`,
+                  () => apiPost<ModelSnapshotResponse>(`/admin/model/${selectedModelId}/supersede`, undefined, auth)
+                )
+              }
+            >
+              <Archive size={18} />
+              Supersede
+            </button>
+            <button
+              className="icon-action"
+              type="button"
+              disabled={Boolean(busyAction)}
+              onClick={() =>
+                void runAdminAction(
+                  "Capture prediction run",
+                  "Record a governed prediction snapshot using the approved model?",
+                  () => apiPost<PredictionRunResponse>("/admin/prediction-runs?require_approved_model=true", undefined, auth)
+                )
+              }
+            >
+              <ClipboardList size={18} />
+              Prediction Run
+            </button>
+            <button
+              className="icon-action"
+              type="button"
+              disabled={Boolean(busyAction)}
+              onClick={() =>
+                void runAdminAction(
+                  "Seed sample data",
+                  "Seed the sample historical and current race tables?",
+                  () => apiPost<SeedSampleResponse>("/admin/seed-sample", undefined, auth)
+                )
+              }
+            >
+              <Database size={18} />
+              Seed
+            </button>
+          </div>
+          {busyAction && <span className="table-subtext">{busyAction} is running.</span>}
+        </div>
+
+        <div className="admin-action-panel">
+          <div className="evaluation-header">
+            <Activity size={20} />
+            <div>
+              <h2>Readiness Snapshot</h2>
+              <span>
+                Data {governance?.readiness.databaseReady ? "ready" : "blocked"} / model {governance?.readiness.modelReady ? "ready" : "blocked"}
+              </span>
+            </div>
+          </div>
+          <div className="admin-readiness-grid">
+            <Metric label="Historical rows" value={formatInteger(governance?.summary.historicalRuns)} />
+            <Metric label="Current runners" value={formatInteger(governance?.summary.currentRunners)} />
+            <Metric label="Freshness" value={formatFreshness(governance?.summary.dataFreshness)} />
+            <Metric label="API error rate" value={formatPercent(governance?.monitoring.apiMetrics.errorRate)} />
+          </div>
+        </div>
+      </section>
+
+      <ModelRegistryTable rows={models} />
+      <PredictionRunTable rows={governance?.predictionRuns ?? []} />
+      <AdminIngestionTable rows={governance?.ingestion ?? []} loading={loading} />
+      <AdminAuditTable rows={auditEvents.length ? auditEvents : governance?.auditEvents ?? []} loading={loading} />
+    </section>
+  );
+}
+
+function AdminIngestionTable({ rows, loading }: { rows: IngestionRow[]; loading: boolean }) {
+  return (
+    <section className="registry-panel">
+      <div className="evaluation-header">
+        <Database size={20} />
+        <div>
+          <h2>Ingestion Governance</h2>
+          <span>Latest provider runs visible to operators before model actions.</span>
+        </div>
+      </div>
+      <div className="table-wrap registry-table-wrap compact-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Table</th>
+              <th>Source</th>
+              <th>Status</th>
+              <th>Rows</th>
+              <th>Ingested</th>
+              <th>Message</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && (
+              <tr>
+                <td colSpan={6}>Loading ingestion rows.</td>
+              </tr>
+            )}
+            {!loading && rows.map((row, index) => (
+              <tr key={`${row.table_name}-${row.source}-${row.ingested_at}-${index}`}>
+                <td>{row.table_name ?? "-"}</td>
+                <td>{row.source ?? "-"}</td>
+                <td>
+                  <span className={`status-pill ${statusTone(row.status)}`}>{row.status ?? "-"}</span>
+                </td>
+                <td>{formatInteger(row.row_count)}</td>
+                <td>{formatDateTime(row.ingested_at)}</td>
+                <td>
+                  <span className="table-subtext">{row.message ?? "-"}</span>
+                </td>
+              </tr>
+            ))}
+            {!loading && rows.length === 0 && (
+              <tr>
+                <td colSpan={6}>No ingestion rows recorded yet.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function AdminAuditTable({ rows, loading }: { rows: AdminAuditEvent[]; loading: boolean }) {
+  return (
+    <section className="registry-panel">
+      <div className="evaluation-header">
+        <LockKeyhole size={20} />
+        <div>
+          <h2>Audit History</h2>
+          <span>Recorded governance actions with actor, role, resource, and request id.</span>
+        </div>
+      </div>
+      <div className="table-wrap registry-table-wrap audit-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Action</th>
+              <th>Actor</th>
+              <th>Resource</th>
+              <th>Status</th>
+              <th>Request</th>
+              <th>Created</th>
+              <th>Detail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && (
+              <tr>
+                <td colSpan={7}>Loading audit history.</td>
+              </tr>
+            )}
+            {!loading && rows.map((row) => (
+              <tr key={row.id}>
+                <td>
+                  <strong>{row.action}</strong>
+                  <span className="table-subtext">{row.roles.join(", ") || "-"}</span>
+                </td>
+                <td>{row.actor}</td>
+                <td>
+                  {row.resourceType}
+                  <span className="table-subtext">{row.resourceId ?? "-"}</span>
+                </td>
+                <td>
+                  <span className={`status-pill ${statusTone(row.status)}`}>{row.status}</span>
+                </td>
+                <td>{row.requestId ?? "-"}</td>
+                <td>{formatDateTime(row.createdAt)}</td>
+                <td>
+                  <span className="table-subtext audit-detail">{row.detail ?? formatAuditPayload(row.payload)}</span>
+                </td>
+              </tr>
+            ))}
+            {!loading && rows.length === 0 && (
+              <tr>
+                <td colSpan={7}>No audit events recorded yet.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function formatAuditPayload(payload: Record<string, unknown> | null) {
+  if (!payload) return "-";
+  const text = JSON.stringify(payload);
+  return text.length > 120 ? `${text.slice(0, 120)}...` : text;
 }
 
 function MethodologyPage() {

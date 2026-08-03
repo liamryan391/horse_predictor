@@ -24,6 +24,7 @@ services:
       APP_ENV: development
       DATABASE_URL: mysql+pymysql://horse_user:horse_password@db:3306/horse_predictor
       BACKEND_CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      JOURNAL_ACCOUNT_KEY: local-operator
       HORSE_API_PROVIDER: sample
       MONITORING_DRIFT_WARNING_THRESHOLD: 0.35
       MONITORING_DRIFT_CRITICAL_THRESHOLD: 0.75

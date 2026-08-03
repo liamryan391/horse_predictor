@@ -8,7 +8,7 @@ import unittest
 from alembic import command
 from alembic.config import Config
 import pandas as pd
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 
 from prediction_model import build_feature_table, evaluate_model, save_model_artifact, score_current_races, train_model
 from racing_storage import (
@@ -17,6 +17,7 @@ from racing_storage import (
     delete_bet_journal_entry,
     ingestion_status,
     read_latest_approved_model_version,
+    read_admin_audit_events,
     read_bet_journal,
     read_model_registry,
     read_prediction_run,
@@ -24,11 +25,13 @@ from racing_storage import (
     read_races,
     provider_freshness_report,
     record_bet_journal_entry,
+    record_admin_audit_event,
     record_model_evaluation_snapshot,
     record_prediction_run,
     release_job_lock,
     table_counts,
     try_acquire_job_lock,
+    update_model_version_status,
     update_bet_journal_entry,
     write_races,
 )
@@ -103,6 +106,36 @@ class RacingStorageTests(unittest.TestCase):
 
             self.assertIsNotNone(approved)
             self.assertEqual("approved", approved["status"])
+
+            superseded = update_model_version_status(database_url, snapshot["id"], "superseded")
+
+            self.assertIsNotNone(superseded)
+            self.assertEqual("superseded", superseded["status"])
+
+    def test_admin_audit_events_record_actor_roles_and_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_url = _sqlite_url(Path(temp_dir) / "audit.db")
+
+            event = record_admin_audit_event(
+                database_url,
+                actor="liam",
+                roles=("reader", "admin"),
+                action="model_version.approve",
+                resource_type="model_version",
+                resource_id=12,
+                request_id="req-123",
+                detail="approved from unit test",
+                payload={"artifactReady": True},
+            )
+            events = read_admin_audit_events(database_url)
+
+            self.assertEqual("liam", event["actor"])
+            self.assertEqual(["reader", "admin"], event["roles"])
+            self.assertEqual("model_version", event["resourceType"])
+            self.assertEqual("12", event["resourceId"])
+            self.assertEqual({"artifactReady": True}, event["payload"])
+            self.assertEqual(1, events["page"]["total"])
+            self.assertEqual(event["id"], events["events"][0]["id"])
 
     def test_prediction_runs_persist_scored_runner_snapshots(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -184,6 +217,53 @@ class RacingStorageTests(unittest.TestCase):
             self.assertTrue(delete_bet_journal_entry(database_url, bet["id"]))
             self.assertEqual(0, read_bet_journal(database_url)["page"]["total"])
 
+    def test_legacy_sqlite_user_bets_table_is_repaired_for_server_journal(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_url = _sqlite_url(Path(temp_dir) / "legacy-bets.db")
+            engine = create_engine(database_url)
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text("CREATE TABLE race_entries (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT)"))
+                    conn.execute(
+                        text(
+                            """
+                            CREATE TABLE user_bets (
+                                id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                                race_entry_id INTEGER NOT NULL,
+                                bet_type VARCHAR(80) NOT NULL,
+                                stake FLOAT NOT NULL,
+                                odds_decimal FLOAT,
+                                status VARCHAR(80) NOT NULL,
+                                placed_at DATETIME NOT NULL,
+                                settled_at DATETIME,
+                                profit_loss FLOAT,
+                                notes TEXT
+                            )
+                            """
+                        )
+                    )
+            finally:
+                engine.dispose()
+
+            bet = record_bet_journal_entry(
+                database_url,
+                {"horse": "Legacy Runner", "stake": 5, "odds": 2.8},
+                account_key="legacy-account",
+            )
+            journal = read_bet_journal(database_url, account_key="legacy-account")
+            engine = create_engine(database_url)
+            try:
+                with engine.connect() as conn:
+                    columns = {column["name"]: column for column in inspect(conn).get_columns("user_bets")}
+            finally:
+                engine.dispose()
+
+            self.assertEqual("Legacy Runner", bet["horse"])
+            self.assertEqual("legacy-account", bet["accountKey"])
+            self.assertEqual(1, journal["page"]["total"])
+            self.assertIn("account_key", columns)
+            self.assertTrue(columns["race_entry_id"]["nullable"])
+
     def test_alembic_upgrade_and_downgrade_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             database_url = _sqlite_url(Path(temp_dir) / "migration.db")
@@ -205,6 +285,7 @@ class RacingStorageTests(unittest.TestCase):
                 finally:
                     engine.dispose()
                 self.assertIn("races_current", table_names)
+                self.assertIn("admin_audit_events", table_names)
                 self.assertIn("model_evaluation_results", table_names)
                 self.assertIn("prediction_run_entries", table_names)
                 self.assertIn("account_key", bet_columns)

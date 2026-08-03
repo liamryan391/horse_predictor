@@ -14,6 +14,7 @@ from sqlalchemy import (
     delete,
     func,
     insert,
+    inspect,
     select,
     text,
     update,
@@ -27,6 +28,29 @@ from settings import resolve_database_url
 
 BET_STATUSES = {"open", "won", "lost", "void"}
 DEFAULT_BET_ACCOUNT_KEY = "local"
+MODEL_STATUSES = {"candidate", "approved", "superseded"}
+USER_BETS_COLUMNS = (
+    "id",
+    "account_key",
+    "race_entry_id",
+    "prediction_run_id",
+    "prediction_run_entry_id",
+    "model_version_id",
+    "horse",
+    "track",
+    "race_date",
+    "bet_type",
+    "stake",
+    "odds_decimal",
+    "closing_odds_decimal",
+    "status",
+    "placed_at",
+    "settled_at",
+    "profit_loss",
+    "notes",
+    "updated_at",
+)
+USER_BETS_REQUIRED_COLUMNS = set(USER_BETS_COLUMNS) - {"id"}
 
 
 def utc_now() -> datetime:
@@ -165,10 +189,92 @@ def get_engine(database_url: str | Path | None = None) -> Engine:
     return create_engine(resolve_database_url(database_url), future=True, pool_pre_ping=True)
 
 
+def _quote_identifier(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _sqlite_user_bets_needs_repair(engine: Engine) -> bool:
+    inspector = inspect(engine)
+    if "user_bets" not in inspector.get_table_names():
+        return False
+    columns = {column["name"]: column for column in inspector.get_columns("user_bets")}
+    missing = USER_BETS_REQUIRED_COLUMNS - set(columns)
+    race_entry_column = columns.get("race_entry_id")
+    return bool(missing) or bool(race_entry_column and not race_entry_column.get("nullable", True))
+
+
+def _sqlite_user_bets_select_expression(column_name: str, existing_columns: set[str]) -> str:
+    if column_name in existing_columns:
+        return _quote_identifier(column_name)
+    if column_name == "account_key":
+        return "'local'"
+    if column_name == "status":
+        return "'open'"
+    if column_name == "updated_at" and "placed_at" in existing_columns:
+        return _quote_identifier("placed_at")
+    return "NULL"
+
+
+def _repair_sqlite_user_bets(engine: Engine) -> None:
+    if engine.dialect.name != "sqlite" or not _sqlite_user_bets_needs_repair(engine):
+        return
+
+    inspector = inspect(engine)
+    existing_columns = {column["name"] for column in inspector.get_columns("user_bets")}
+    insert_columns = ", ".join(_quote_identifier(column) for column in USER_BETS_COLUMNS)
+    select_columns = ", ".join(
+        f"{_sqlite_user_bets_select_expression(column, existing_columns)} AS {_quote_identifier(column)}"
+        for column in USER_BETS_COLUMNS
+    )
+
+    with engine.begin() as conn:
+        conn.execute(text("PRAGMA foreign_keys=OFF"))
+        conn.execute(text("DROP TABLE IF EXISTS user_bets_repair"))
+        conn.execute(
+            text(
+                """
+                CREATE TABLE user_bets_repair (
+                    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                    account_key VARCHAR(120) NOT NULL DEFAULT 'local',
+                    race_entry_id INTEGER,
+                    prediction_run_id INTEGER,
+                    prediction_run_entry_id INTEGER,
+                    model_version_id INTEGER,
+                    horse VARCHAR(160),
+                    track VARCHAR(120),
+                    race_date DATE,
+                    bet_type VARCHAR(80) NOT NULL,
+                    stake FLOAT NOT NULL,
+                    odds_decimal FLOAT,
+                    closing_odds_decimal FLOAT,
+                    status VARCHAR(80) NOT NULL DEFAULT 'open',
+                    placed_at DATETIME NOT NULL,
+                    settled_at DATETIME,
+                    profit_loss FLOAT,
+                    notes TEXT,
+                    updated_at DATETIME,
+                    FOREIGN KEY(race_entry_id) REFERENCES race_entries (id),
+                    FOREIGN KEY(prediction_run_id) REFERENCES prediction_runs (id),
+                    FOREIGN KEY(prediction_run_entry_id) REFERENCES prediction_run_entries (id),
+                    FOREIGN KEY(model_version_id) REFERENCES model_versions (id)
+                )
+                """
+            )
+        )
+        conn.execute(text(f"INSERT INTO user_bets_repair ({insert_columns}) SELECT {select_columns} FROM user_bets"))
+        conn.execute(text("DROP TABLE user_bets"))
+        conn.execute(text("ALTER TABLE user_bets_repair RENAME TO user_bets"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_bets_account_status ON user_bets (account_key, status)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_bets_race_date_track ON user_bets (race_date, track)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_bets_prediction_run ON user_bets (prediction_run_id)"))
+        conn.execute(text("PRAGMA foreign_keys=ON"))
+
+
 def init_db(database_url: str | Path | None = None) -> None:
     engine = get_engine(database_url)
     try:
         METADATA.create_all(engine)
+        _repair_sqlite_user_bets(engine)
     finally:
         engine.dispose()
 
@@ -508,6 +614,29 @@ def approve_model_version(database_url: str | Path | None, model_version_id: int
         engine.dispose()
 
 
+def update_model_version_status(database_url: str | Path | None, model_version_id: int, status: str) -> dict[str, Any] | None:
+    if status not in MODEL_STATUSES:
+        raise ValueError(f"status must be one of: {', '.join(sorted(MODEL_STATUSES))}.")
+    if status == "approved":
+        return approve_model_version(database_url, model_version_id)
+
+    init_db(database_url)
+    engine = get_engine(database_url)
+    model_table = METADATA.tables["model_versions"]
+    now = utc_now()
+    try:
+        with engine.begin() as conn:
+            row = conn.execute(select(model_table).where(model_table.c.id == model_version_id)).mappings().first()
+            if not row:
+                return None
+            conn.execute(update(model_table).where(model_table.c.id == model_version_id).values(status=status, updated_at=now))
+            updated = conn.execute(select(model_table).where(model_table.c.id == model_version_id)).mappings().one()
+            metrics = _metrics_for_model_ids(conn, [model_version_id]).get(model_version_id, {})
+            return _model_payload(dict(updated), metrics)
+    finally:
+        engine.dispose()
+
+
 def read_latest_approved_model_version(database_url: str | Path | None) -> dict[str, Any] | None:
     init_db(database_url)
     engine = get_engine(database_url)
@@ -749,6 +878,95 @@ def read_prediction_run(
                 "entries": entries,
                 "page": {"limit": limit, "offset": offset, "returned": len(entries), "total": total},
             }
+    finally:
+        engine.dispose()
+
+
+def _audit_payload(row: dict[str, Any]) -> dict[str, Any]:
+    roles = row.get("roles")
+    try:
+        parsed_roles = json.loads(roles) if roles else []
+    except json.JSONDecodeError:
+        parsed_roles = []
+    payload_json = row.get("payload_json")
+    try:
+        payload = json.loads(payload_json) if payload_json else None
+    except json.JSONDecodeError:
+        payload = None
+    return {
+        "id": int(row["id"]),
+        "actor": row.get("actor"),
+        "roles": parsed_roles if isinstance(parsed_roles, list) else [],
+        "action": row.get("action"),
+        "resourceType": row.get("resource_type"),
+        "resourceId": row.get("resource_id"),
+        "requestId": row.get("request_id"),
+        "status": row.get("status"),
+        "detail": row.get("detail"),
+        "payload": payload,
+        "createdAt": _iso_value(row.get("created_at")),
+    }
+
+
+def record_admin_audit_event(
+    database_url: str | Path | None,
+    actor: str,
+    roles: list[str] | tuple[str, ...],
+    action: str,
+    resource_type: str,
+    resource_id: str | int | None = None,
+    request_id: str | None = None,
+    status: str = "success",
+    detail: str | None = None,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    init_db(database_url)
+    engine = get_engine(database_url)
+    audit_table = METADATA.tables["admin_audit_events"]
+    now = utc_now()
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(
+                insert(audit_table),
+                {
+                    "actor": _required_text(actor, "actor", max_length=160),
+                    "roles": json.dumps(list(roles), separators=(",", ":")),
+                    "action": _required_text(action, "action", max_length=160),
+                    "resource_type": _required_text(resource_type, "resource_type", max_length=120),
+                    "resource_id": None if resource_id is None else str(resource_id)[:120],
+                    "request_id": _trim_text(request_id, max_length=120),
+                    "status": _trim_text(status, max_length=40) or "success",
+                    "detail": _trim_text(detail, max_length=2000),
+                    "payload_json": json.dumps(payload or {}, default=str, separators=(",", ":")) if payload else None,
+                    "created_at": now,
+                },
+            )
+            audit_id = int(result.inserted_primary_key[0])
+            row = conn.execute(select(audit_table).where(audit_table.c.id == audit_id)).mappings().one()
+            return _audit_payload(dict(row))
+    finally:
+        engine.dispose()
+
+
+def read_admin_audit_events(database_url: str | Path | None, limit: int = 50, offset: int = 0) -> dict[str, Any]:
+    init_db(database_url)
+    engine = get_engine(database_url)
+    audit_table = METADATA.tables["admin_audit_events"]
+    try:
+        with engine.connect() as conn:
+            total = int(conn.execute(select(func.count()).select_from(audit_table)).scalar_one())
+            rows = (
+                conn.execute(
+                    select(audit_table)
+                    .order_by(audit_table.c.created_at.desc(), audit_table.c.id.desc())
+                    .limit(limit)
+                    .offset(offset)
+                )
+                .mappings()
+                .all()
+            )
+            events = [_audit_payload(dict(row)) for row in rows]
+            return {"events": events, "page": {"limit": limit, "offset": offset, "returned": len(events), "total": total}}
     finally:
         engine.dispose()
 

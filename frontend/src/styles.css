@@ -236,6 +236,8 @@ p {
 .evaluation-panel,
 .trend-table,
 .journal-form,
+.admin-token-panel,
+.admin-action-panel,
 .content-band,
 .info-grid article {
   border: 1px solid var(--line);
@@ -800,7 +802,21 @@ td {
   padding: 14px 16px;
 }
 
-.error-banner span {
+.success-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid color-mix(in srgb, var(--good) 42%, var(--line));
+  border-left: 4px solid var(--good);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--good) 10%, var(--panel));
+  color: var(--text);
+  padding: 14px 16px;
+}
+
+.error-banner span,
+.success-banner span {
   color: var(--muted);
 }
 
@@ -814,6 +830,76 @@ td {
 
 .journal-form .notes-field {
   grid-column: span 2;
+}
+
+.admin-token-panel {
+  display: grid;
+  grid-template-columns: auto minmax(220px, 1fr) minmax(180px, 260px) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 16px;
+}
+
+.admin-token-panel .panel-title {
+  align-self: center;
+}
+
+.admin-token-actions,
+.admin-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.admin-action-panel {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+.admin-action-controls {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.admin-selected-model {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+  min-width: 180px;
+}
+
+.admin-selected-model small {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.admin-readiness-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-readiness-grid .metric-tile {
+  min-height: 78px;
+}
+
+.audit-table-wrap table {
+  min-width: 1080px;
+}
+
+.audit-detail {
+  max-width: 340px;
+  white-space: normal;
 }
 
 .text-action {
@@ -881,12 +967,18 @@ td {
 
   .workspace-layout,
   .race-centre-layout,
-  .journal-form {
+  .journal-form,
+  .admin-token-panel,
+  .admin-grid {
     grid-template-columns: 1fr;
   }
 
   .journal-form .notes-field {
     grid-column: auto;
+  }
+
+  .admin-token-panel .panel-title {
+    align-self: start;
   }
 
   .control-panel {
@@ -914,9 +1006,11 @@ td {
   .comparison-grid,
   .race-focus-grid,
   .trend-grid,
-  .info-grid,
-  .safeguard-grid,
-  .monitoring-api-grid {
+    .info-grid,
+    .safeguard-grid,
+    .monitoring-api-grid,
+    .admin-action-controls,
+    .admin-readiness-grid {
     grid-template-columns: 1fr;
   }
 

@@ -10,6 +10,7 @@ import subprocess
 import time
 import uuid
 from collections import defaultdict, deque
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from secrets import compare_digest
 from typing import Annotated, Any, Literal
@@ -24,6 +25,9 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from observability import configure_logging, configure_tracing
 from api_contracts import (
+    AdminAuditResponse,
+    AdminGovernanceResponse,
+    AdminSessionResponse,
     BetJournalCreateRequest,
     BetJournalDeleteResponse,
     BetJournalEntryResponse,
@@ -73,6 +77,7 @@ from racing_storage import (
     delete_bet_journal_entry,
     ingestion_status,
     read_latest_approved_model_version,
+    read_admin_audit_events,
     read_bet_journal,
     read_model_version,
     read_model_registry,
@@ -81,10 +86,12 @@ from racing_storage import (
     read_races,
     provider_freshness_report,
     record_bet_journal_entry,
+    record_admin_audit_event,
     record_model_evaluation_snapshot,
     record_prediction_run,
     seed_database_from_samples,
     table_counts,
+    update_model_version_status,
     update_bet_journal_entry,
 )
 from settings import get_settings
@@ -102,6 +109,14 @@ request_id_context: contextvars.ContextVar[str] = contextvars.ContextVar("reques
 rate_limit_hits: dict[str, deque[float]] = defaultdict(deque)
 admin_auth = HTTPBearer(auto_error=False)
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
+ACTOR_PATTERN = re.compile(r"^[A-Za-z0-9_.:@ -]{1,120}$")
+
+
+@dataclass(frozen=True)
+class AccessContext:
+    actor: str
+    roles: tuple[str, ...]
+    account_key: str
 
 app = FastAPI(
     title="Horse Predictor API",
@@ -115,7 +130,7 @@ app.add_middleware(
     allow_origins=list(SETTINGS.backend_cors_origins),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+    allow_headers=["Authorization", "Content-Type", "X-Admin-Actor", "X-Journal-Actor", "X-Request-ID"],
     expose_headers=["X-Request-ID"],
 )
 TRACING_STATUS = configure_tracing(app, SETTINGS.otel_enabled, SETTINGS.otel_service_name)
@@ -486,15 +501,86 @@ def build_scored_predictions_with_model(
     return filter_race_rows(scored_df, track=track, race_date=race_date, horse=horse), model_record, serving_mode
 
 
-def require_admin(credentials: HTTPAuthorizationCredentials | None = Depends(admin_auth)) -> None:
-    if not SETTINGS.api_auth_token:
-        if SETTINGS.is_deployed_environment:
-            raise HTTPException(status_code=500, detail="API_AUTH_TOKEN is required for administrative API routes.")
-        return
-    if not credentials or credentials.scheme.lower() != "bearer":
-        raise HTTPException(status_code=401, detail="Administrative token required.", headers={"WWW-Authenticate": "Bearer"})
-    if not compare_digest(credentials.credentials, SETTINGS.api_auth_token):
-        raise HTTPException(status_code=403, detail="Administrative token is invalid.")
+def normalize_actor(value: str | None, fallback: str) -> str:
+    candidate = (value or "").strip()
+    return candidate if ACTOR_PATTERN.fullmatch(candidate) else fallback
+
+
+def access_payload(access: AccessContext) -> dict[str, Any]:
+    return {
+        "requestId": request_id(),
+        "actor": access.actor,
+        "roles": list(access.roles),
+        "environment": SETTINGS.app_env,
+        "adminAuthRequired": bool(SETTINGS.api_auth_token) or SETTINGS.is_deployed_environment,
+        "journalAuthRequired": bool(SETTINGS.journal_auth_token) or SETTINGS.is_deployed_environment,
+        "adminTokenConfigured": bool(SETTINGS.api_auth_token),
+        "journalTokenConfigured": bool(SETTINGS.journal_auth_token),
+    }
+
+
+def local_access_context() -> AccessContext:
+    return AccessContext(actor="local-dev", roles=("reader", "journal", "admin"), account_key="local")
+
+
+def access_context_or_local(value: Any, required_role: str = "admin") -> AccessContext:
+    if isinstance(value, AccessContext):
+        return value
+    context = local_access_context()
+    if required_role not in context.roles:
+        raise HTTPException(status_code=403, detail=f"{required_role} role is required.")
+    return context
+
+
+def access_from_request(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None,
+    required_role: Literal["admin", "journal"],
+) -> AccessContext:
+    token = credentials.credentials if credentials and credentials.scheme.lower() == "bearer" else None
+    actor_header = request.headers.get("x-admin-actor") or request.headers.get("x-journal-actor")
+
+    if SETTINGS.api_auth_token and token and compare_digest(token, SETTINGS.api_auth_token):
+        actor = normalize_actor(actor_header, "admin")
+        return AccessContext(actor=actor, roles=("reader", "journal", "admin"), account_key="admin")
+
+    if SETTINGS.journal_auth_token and token and compare_digest(token, SETTINGS.journal_auth_token):
+        if required_role == "admin":
+            raise HTTPException(status_code=403, detail="Administrative role is required.")
+        actor = normalize_actor(actor_header, SETTINGS.journal_account_key)
+        return AccessContext(actor=actor, roles=("reader", "journal"), account_key=SETTINGS.journal_account_key.strip())
+
+    any_token_configured = bool(SETTINGS.api_auth_token or SETTINGS.journal_auth_token)
+    if not SETTINGS.is_deployed_environment and not any_token_configured:
+        return local_access_context()
+
+    if not token:
+        auth_label = "Administrative" if required_role == "admin" else "Journal"
+        raise HTTPException(
+            status_code=401,
+            detail=f"{auth_label} bearer token required.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    raise HTTPException(status_code=403, detail="Bearer token is invalid or does not have the required role.")
+
+
+def require_admin(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(admin_auth),
+) -> AccessContext:
+    if SETTINGS.is_deployed_environment and not SETTINGS.api_auth_token:
+        raise HTTPException(status_code=500, detail="API_AUTH_TOKEN is required for administrative API routes.")
+    return access_from_request(request, credentials, "admin")
+
+
+def require_journal(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(admin_auth),
+) -> AccessContext:
+    if SETTINGS.is_deployed_environment and not SETTINGS.journal_auth_token:
+        raise HTTPException(status_code=500, detail="JOURNAL_AUTH_TOKEN is required for server-side journal routes.")
+    return access_from_request(request, credentials, "journal")
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -896,9 +982,68 @@ def build_monitoring_payload() -> dict[str, Any]:
     }
 
 
+def audit_admin_action(
+    access: AccessContext,
+    action: str,
+    resource_type: str,
+    resource_id: str | int | None = None,
+    status: str = "success",
+    detail: str | None = None,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return record_admin_audit_event(
+        DATABASE_URL,
+        actor=access.actor,
+        roles=access.roles,
+        action=action,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        request_id=request_id(),
+        status=status,
+        detail=detail,
+        payload=payload,
+    )
+
+
 @router.get("/monitoring", response_model=MonitoringResponse)
 def monitoring() -> dict[str, Any]:
     return {"requestId": request_id(), **build_monitoring_payload()}
+
+
+@router.get("/admin/session", response_model=AdminSessionResponse)
+def admin_session(access: AccessContext | None = Depends(require_admin)) -> dict[str, Any]:
+    admin = access_context_or_local(access, "admin")
+    return access_payload(admin)
+
+
+@router.get("/admin/audit-log", response_model=AdminAuditResponse)
+def admin_audit_log(
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    access: AccessContext | None = Depends(require_admin),
+) -> dict[str, Any]:
+    access_context_or_local(access, "admin")
+    return {"requestId": request_id(), **read_admin_audit_events(DATABASE_URL, limit=limit, offset=offset)}
+
+
+@router.get("/admin/governance", response_model=AdminGovernanceResponse)
+def admin_governance(access: AccessContext | None = Depends(require_admin)) -> dict[str, Any]:
+    admin = access_context_or_local(access, "admin")
+    ingestion_payload = ingestion(limit=20)
+    registry = read_model_registry(DATABASE_URL, limit=20)
+    runs = read_prediction_runs(DATABASE_URL, limit=10)
+    audit = read_admin_audit_events(DATABASE_URL, limit=10)
+    return {
+        "requestId": request_id(),
+        "session": access_payload(admin),
+        "readiness": ready(),
+        "summary": summary(),
+        "monitoring": monitoring(),
+        "ingestion": ingestion_payload["ingestion"],
+        "models": registry["models"],
+        "predictionRuns": runs["runs"],
+        "auditEvents": audit["events"],
+    }
 
 
 @router.get("/safeguards", response_model=ProductSafeguardsResponse)
@@ -1010,27 +1155,53 @@ def bet_journal(
     status: Annotated[Literal["open", "won", "lost", "void"] | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
     offset: Annotated[int, Query(ge=0)] = 0,
+    access: AccessContext | None = Depends(require_journal),
 ) -> dict[str, Any]:
+    journal_access = access_context_or_local(access, "journal")
     try:
-        journal = read_bet_journal(DATABASE_URL, status=status, limit=limit, offset=offset)
+        journal = read_bet_journal(
+            DATABASE_URL,
+            account_key=journal_access.account_key,
+            status=status,
+            limit=limit,
+            offset=offset,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"requestId": request_id(), **journal}
 
 
 @router.post("/bet-journal", response_model=BetJournalEntryResponse, status_code=http_status.HTTP_201_CREATED)
-def create_bet(payload: BetJournalCreateRequest) -> dict[str, Any]:
+def create_bet(
+    payload: BetJournalCreateRequest,
+    access: AccessContext | None = Depends(require_journal),
+) -> dict[str, Any]:
+    journal_access = access_context_or_local(access, "journal")
     try:
-        bet = record_bet_journal_entry(DATABASE_URL, request_model_payload(payload))
+        bet = record_bet_journal_entry(
+            DATABASE_URL,
+            request_model_payload(payload),
+            account_key=journal_access.account_key,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"requestId": request_id(), "bet": bet}
 
 
 @router.patch("/bet-journal/{bet_id}", response_model=BetJournalEntryResponse)
-def update_bet(bet_id: int, payload: BetJournalUpdateRequest) -> dict[str, Any]:
+def update_bet(
+    bet_id: int,
+    payload: BetJournalUpdateRequest,
+    access: AccessContext | None = Depends(require_journal),
+) -> dict[str, Any]:
+    journal_access = access_context_or_local(access, "journal")
     try:
-        bet = update_bet_journal_entry(DATABASE_URL, bet_id, request_model_payload(payload))
+        bet = update_bet_journal_entry(
+            DATABASE_URL,
+            bet_id,
+            request_model_payload(payload),
+            account_key=journal_access.account_key,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not bet:
@@ -1039,8 +1210,12 @@ def update_bet(bet_id: int, payload: BetJournalUpdateRequest) -> dict[str, Any]:
 
 
 @router.delete("/bet-journal/{bet_id}", response_model=BetJournalDeleteResponse)
-def delete_bet(bet_id: int) -> dict[str, Any]:
-    deleted = delete_bet_journal_entry(DATABASE_URL, bet_id)
+def delete_bet(
+    bet_id: int,
+    access: AccessContext | None = Depends(require_journal),
+) -> dict[str, Any]:
+    journal_access = access_context_or_local(access, "journal")
+    deleted = delete_bet_journal_entry(DATABASE_URL, bet_id, account_key=journal_access.account_key)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Bet journal entry {bet_id} was not found.")
     return {"requestId": request_id(), "id": bet_id, "deleted": True}
@@ -1113,7 +1288,8 @@ def model_registry(
 
 
 @router.post("/admin/model/evaluation", response_model=ModelSnapshotResponse)
-def capture_model_evaluation(_: None = Depends(require_admin)) -> dict[str, Any]:
+def capture_model_evaluation(access: AccessContext | None = Depends(require_admin)) -> dict[str, Any]:
+    admin = access_context_or_local(access, "admin")
     _, _, model, history_features = load_model_bundle()
     evaluation = evaluate_model(history_features)
     artifact = save_model_artifact(model, SETTINGS.model_artifact_dir, code_commit_sha=current_code_commit_sha())
@@ -1126,11 +1302,28 @@ def capture_model_evaluation(_: None = Depends(require_admin)) -> dict[str, Any]
         feature_schema_hash=artifact.feature_schema_hash,
         code_commit_sha=artifact.code_commit_sha,
     )
+    audit_admin_action(
+        admin,
+        "model_evaluation.capture",
+        "model_version",
+        model_record["id"],
+        detail="Captured model evaluation snapshot and persisted model artifact.",
+        payload={
+            "status": model_record.get("status"),
+            "artifactReady": model_record.get("artifactReady"),
+            "trainingRows": model_record.get("metrics", {}).get("training_rows"),
+            "featureCount": model_record.get("featureCount"),
+        },
+    )
     return {"requestId": request_id(), "model": model_record}
 
 
 @router.post("/admin/model/{model_version_id}/approve", response_model=ModelSnapshotResponse)
-def approve_model(model_version_id: int, _: None = Depends(require_admin)) -> dict[str, Any]:
+def approve_model(
+    model_version_id: int,
+    access: AccessContext | None = Depends(require_admin),
+) -> dict[str, Any]:
+    admin = access_context_or_local(access, "admin")
     candidate = read_model_version(DATABASE_URL, model_version_id)
     if not candidate:
         raise HTTPException(status_code=404, detail=f"Model version {model_version_id} was not found.")
@@ -1145,17 +1338,50 @@ def approve_model(model_version_id: int, _: None = Depends(require_admin)) -> di
     model_record = approve_model_version(DATABASE_URL, model_version_id)
     if not model_record:
         raise HTTPException(status_code=404, detail=f"Model version {model_version_id} was not found.")
+    audit_admin_action(
+        admin,
+        "model_version.approve",
+        "model_version",
+        model_version_id,
+        detail="Approved model version for artifact-backed serving.",
+        payload={
+            "artifactReady": model_record.get("artifactReady"),
+            "artifactSha256": model_record.get("artifactSha256"),
+            "featureSchemaHash": model_record.get("featureSchemaHash"),
+        },
+    )
+    return {"requestId": request_id(), "model": model_record}
+
+
+@router.post("/admin/model/{model_version_id}/supersede", response_model=ModelSnapshotResponse)
+def supersede_model(
+    model_version_id: int,
+    access: AccessContext | None = Depends(require_admin),
+) -> dict[str, Any]:
+    admin = access_context_or_local(access, "admin")
+    model_record = update_model_version_status(DATABASE_URL, model_version_id, "superseded")
+    if not model_record:
+        raise HTTPException(status_code=404, detail=f"Model version {model_version_id} was not found.")
+    audit_admin_action(
+        admin,
+        "model_version.supersede",
+        "model_version",
+        model_version_id,
+        detail="Superseded model version from the admin console.",
+        payload={"previousStatus": "unknown", "status": model_record.get("status")},
+    )
     return {"requestId": request_id(), "model": model_record}
 
 
 @router.post("/admin/prediction-runs", response_model=PredictionRunResponse)
 def capture_prediction_run(
-    _: None = Depends(require_admin),
+    access: AccessContext | None = Depends(require_admin),
     race_date: Annotated[date | None, Query()] = None,
     track: Annotated[str | None, Query()] = None,
     horse: Annotated[str | None, Query()] = None,
     require_approved_model: Annotated[bool, Query()] = False,
 ) -> dict[str, Any]:
+    admin = access_context_or_local(access, "admin")
     scored_df, model_record, serving_mode = build_scored_predictions_with_model(race_date=race_date, track=track, horse=horse)
     scored_df = sort_frame(scored_df, "suggested_rank", "asc")
     if scored_df.empty:
@@ -1171,6 +1397,24 @@ def capture_prediction_run(
         else "scored with current in-memory model; no approved model artifact linked"
     )
     run = record_prediction_run(DATABASE_URL, scored_df, source="api", model_version_id=model_version_id, notes=notes)
+    audit_admin_action(
+        admin,
+        "prediction_run.capture",
+        "prediction_run",
+        run["run"]["id"],
+        detail="Captured persisted prediction run snapshot.",
+        payload={
+            "modelVersionId": model_version_id,
+            "servingMode": serving_mode,
+            "runnerCount": run["run"].get("runnerCount"),
+            "requireApprovedModel": require_approved_model,
+            "filters": {
+                "raceDate": clean_value(race_date),
+                "track": track,
+                "horse": horse,
+            },
+        },
+    )
     return {"requestId": request_id(), **run}
 
 
@@ -1190,10 +1434,20 @@ def ingestion(limit: Annotated[int, Query(ge=1, le=100)] = 20, offset: Annotated
 
 
 @router.post("/admin/seed-sample", response_model=SeedSampleResponse)
-def seed_sample(_: None = Depends(require_admin)) -> dict[str, Any]:
+def seed_sample(access: AccessContext | None = Depends(require_admin)) -> dict[str, Any]:
+    admin = access_context_or_local(access, "admin")
+    seeded = seed_database_from_samples(DATABASE_URL, SETTINGS.sample_historical_csv, SETTINGS.sample_current_csv)
+    audit_admin_action(
+        admin,
+        "data.seed_sample",
+        "database",
+        "sample-data",
+        detail="Seeded sample historical and current race tables.",
+        payload={"seeded": seeded},
+    )
     return {
         "requestId": request_id(),
-        "seeded": seed_database_from_samples(DATABASE_URL, SETTINGS.sample_historical_csv, SETTINGS.sample_current_csv),
+        "seeded": seeded,
     }
 
 

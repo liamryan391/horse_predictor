@@ -473,6 +473,49 @@ class IngestionStatusResponse(BaseModel):
     page: PageMeta
 
 
+class AdminSessionResponse(BaseModel):
+    requestId: str
+    actor: str
+    roles: List[str]
+    environment: str
+    adminAuthRequired: bool
+    journalAuthRequired: bool
+    adminTokenConfigured: bool
+    journalTokenConfigured: bool
+
+
+class AdminAuditEvent(BaseModel):
+    id: int
+    actor: str
+    roles: List[str]
+    action: str
+    resourceType: str
+    resourceId: str | None = None
+    requestId: str | None = None
+    status: str
+    detail: str | None = None
+    payload: Dict[str, Any] | None = None
+    createdAt: str | None = None
+
+
+class AdminAuditResponse(BaseModel):
+    requestId: str
+    events: List[AdminAuditEvent]
+    page: PageMeta
+
+
+class AdminGovernanceResponse(BaseModel):
+    requestId: str
+    session: AdminSessionResponse
+    readiness: ReadinessResponse
+    summary: SummaryResponse
+    monitoring: MonitoringResponse
+    ingestion: List[IngestionRow]
+    models: List[ModelRegistryRow]
+    predictionRuns: List[PredictionRunRow]
+    auditEvents: List[AdminAuditEvent]
+
+
 class EntityProfileResponse(BaseModel):
     requestId: str
     entityType: str

@@ -10,15 +10,18 @@ Runtime controls:
 - `BACKEND_CORS_ORIGINS` must be explicitly set and must use HTTPS outside local development.
 - `ALLOWED_HOSTS` must be explicitly set in staging and production.
 - `API_AUTH_TOKEN` must be a non-placeholder secret with at least 32 characters.
+- `JOURNAL_AUTH_TOKEN` must be a non-placeholder secret with at least 32 characters.
+- `JOURNAL_ACCOUNT_KEY` must be non-empty for server-side journal ownership.
 - `MAX_REQUEST_BODY_BYTES` rejects oversized requests before route handlers run.
 - `REQUIRE_APPROVED_MODEL_ARTIFACT=true` requires an approved, loadable model artifact before prediction serving is ready.
 - Monitoring thresholds are configurable with `MONITORING_DRIFT_WARNING_THRESHOLD`, `MONITORING_DRIFT_CRITICAL_THRESHOLD`, `MONITORING_SLOW_REQUEST_MS`, and `MONITORING_MAX_ERROR_RATE`.
 - API responses include request IDs and baseline security headers.
-- Administrative routes compare bearer tokens with constant-time comparison.
+- Administrative and journal routes compare bearer tokens with constant-time comparison.
+- Governed admin writes record audit rows in `admin_audit_events`.
 
 Operational checks:
 
-- Rotate `API_AUTH_TOKEN`, provider credentials, and database passwords before production launch.
+- Rotate `API_AUTH_TOKEN`, `JOURNAL_AUTH_TOKEN`, provider credentials, and database passwords before production launch.
 - Use separate MySQL users for application reads/writes, migrations, backups, and provider import jobs.
 - Restrict the application database user to the `horse_predictor` schema.
 - Enable platform DDoS/rate-limit protections in front of the built-in single-process limiter.
@@ -47,7 +50,7 @@ Before launch, prove that production data can be restored into an isolated stagi
 5. Run acceptance checks:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\production-readiness-check.py --base-url https://horse-predictor-api-staging.example.com --require-policy-links --require-approved-artifact --require-enriched-data --require-monitoring
+.\.venv\Scripts\python.exe scripts\production-readiness-check.py --base-url https://horse-predictor-api-staging.example.com --require-policy-links --require-approved-artifact --require-enriched-data --require-monitoring --require-admin-governance
 ```
 
 6. Confirm `/api/v1/summary` reports fresh data, `/api/v1/data-quality` reports acceptable enrichment coverage, `/api/v1/monitoring` reports populated drift checks, `/api/v1/model/evaluation` is acceptable for launch, and `/api/v1/model` reports `servingMode=artifact`.
@@ -94,6 +97,7 @@ Model approval:
 - Compare model metrics against the market baseline before launch.
 - Approve the reviewed model with `POST /api/v1/admin/model/{model_version_id}/approve`; approval verifies artifact checksum and feature-schema hash.
 - Record a prediction snapshot with `POST /api/v1/admin/prediction-runs?require_approved_model=true`.
+- Confirm the Admin Console audit history includes the snapshot, approval, and prediction-run actions.
 - Record the approved commit SHA and data snapshot window.
 
 When production is expected to have an approved model, add `--require-approved-model` to `scripts/production-readiness-check.py`.
@@ -101,6 +105,7 @@ When production is expected to serve from a persisted artifact, add `--require-a
 When production is expected to have persisted scoring evidence, add `--require-prediction-run` too.
 When production is expected to have provider-grade enrichment coverage, add `--require-enriched-data`.
 When production monitoring should be release-blocking, add `--require-monitoring --require-no-critical-alerts`.
+When production admin governance should be release-blocking, add `--require-admin-governance` and provide `API_AUTH_TOKEN`.
 
 Monitored release:
 

@@ -100,13 +100,13 @@ Future ideas:
 
 ## Admin And Governance
 
-Administrative actions should become visible, reversible where possible, and auditable.
+Administrative actions are now visible in the Phase 17 Admin Console. Future governance should make those controls account-backed, more granular, and reversible where possible.
 
 Future ideas:
 
-- Add an admin console for ingestion runs, provider freshness, model registry, approvals, prediction runs, and launch gates.
-- Add audit logs for model approval, rollback, ingestion backfill, provider configuration changes, and admin actions.
-- Add role-based access for viewers, journal users, operators, and admins.
+- Replace shared bearer tokens with named user login, session management, and durable role assignments.
+- Extend audit logs to rollback, ingestion backfill, provider configuration changes, release records, and auth events.
+- Add role-based access for viewers, journal users, operators, admins, and release approvers.
 - Add release records that include commit SHA, migration head, approved model id, prediction-run id, provider freshness, and rollback target.
 
 ## Possible Research Tracks

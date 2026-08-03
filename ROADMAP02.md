@@ -127,7 +127,7 @@ Goal: make the journal useful across devices and auditable for model feedback wi
 - Add user/account ownership before storing personal bet history.
 - Add settlement status, result linkage, closing odds, and notes.
 
-Current inspection: `/api/v1/bet-journal` now supports list, create, patch, and delete operations backed by `user_bets`. The table now supports operator-local ownership, manual horse/track/date context, nullable race-entry linkage, optional prediction-run/model links, closing odds, settlement status, notes, and server-computed profit/loss. Real user authentication and personal account ownership remain Phase 17 work.
+Current inspection: `/api/v1/bet-journal` now supports list, create, patch, and delete operations backed by `user_bets`. The table now supports operator-local ownership, manual horse/track/date context, nullable race-entry linkage, optional prediction-run/model links, closing odds, settlement status, notes, and server-computed profit/loss. Phase 17 adds bearer-token journal scoping; real user authentication and personal account ownership remain future work.
 
 ### 15.2 Analytics
 
@@ -180,11 +180,23 @@ Goal: make operational actions visible and controlled.
 - Add approve/supersede model actions with confirmation.
 - Add audit log rows for admin actions.
 
+Current inspection: the React app now includes an Admin tab with stored bearer-token and actor controls, governance/readiness metrics, model snapshot capture, model approval, model supersede, approved-model prediction-run capture, sample seeding, ingestion visibility, model registry rows, prediction-run rows, and audit history. Governed actions use confirmation prompts.
+
 ### 17.2 Auth And Roles
 
 - Add user login before server-side bet journal or admin UI.
 - Separate read-only users, journal users, and admins.
 - Keep admin endpoints bearer-token protected until proper auth is in place.
+
+Current inspection: FastAPI now has an access context with `reader`, `journal`, and `admin` roles. `API_AUTH_TOKEN` grants admin plus journal access, `JOURNAL_AUTH_TOKEN` grants journal access, and local development falls back to `local-dev` only when no tokens are configured. Staging and production require non-placeholder admin and journal tokens, but full named-user login remains a later authentication phase.
+
+### 17.3 Audit And Release Checks
+
+- Add audit storage for admin actions.
+- Add admin governance read endpoints for release verification.
+- Add optional production-readiness checks for admin session, governance, and audit-log routes.
+
+Current inspection: `admin_audit_events` stores actor, roles, action, resource, request id, status, detail, payload, and timestamp. `/api/v1/admin/session`, `/api/v1/admin/governance`, and `/api/v1/admin/audit-log` expose the console and release-check contract, and `scripts/production-readiness-check.py --require-admin-governance` can validate the authenticated governance surface.
 
 ## Phase 18: CI, Release, And Visual Gates
 
@@ -208,6 +220,6 @@ Goal: turn the current manual validation list into repeatable automation.
 
 ## Recommended Next Phase
 
-Start with Phase 17: Admin Console And Governance.
+Start with Phase 18: CI, Release, And Visual Gates.
 
-Reason: Phase 16 now gives operators visibility into freshness, drift, API behavior, and governance gaps. The next platform risk is controlled access: admin actions, model approvals, ingestion controls, and server-side journal records need authenticated users, roles, and audit history before broader production use.
+Reason: Phase 17 now gives operators a controlled admin surface and audit history for model and prediction actions. The next platform risk is repeatability: CI, visual verification, release records, and staging gates should make the manual validation list harder to skip.

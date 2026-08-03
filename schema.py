@@ -277,6 +277,25 @@ def add_normalized_tables(metadata: MetaData) -> None:
     )
 
     Table(
+        "admin_audit_events",
+        metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("actor", String(160), nullable=False),
+        Column("roles", Text),
+        Column("action", String(160), nullable=False),
+        Column("resource_type", String(120), nullable=False),
+        Column("resource_id", String(120)),
+        Column("request_id", String(120)),
+        Column("status", String(40), nullable=False, default="success"),
+        Column("detail", Text),
+        Column("payload_json", Text),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        Index("ix_admin_audit_events_created", "created_at"),
+        Index("ix_admin_audit_events_actor", "actor"),
+        Index("ix_admin_audit_events_action", "action"),
+    )
+
+    Table(
         "job_locks",
         metadata,
         Column("lock_name", String(120), primary_key=True),

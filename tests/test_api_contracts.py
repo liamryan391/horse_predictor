@@ -10,8 +10,11 @@ _TEMP_DIR = tempfile.TemporaryDirectory()
 os.environ["DATABASE_URL"] = f"sqlite:///{(Path(_TEMP_DIR.name) / 'api_contracts.db').as_posix()}"
 os.environ["MODEL_ARTIFACT_DIR"] = str(Path(_TEMP_DIR.name) / "artifacts")
 
-from api import SETTINGS, approve_model, bet_journal, create_bet, delete_bet, capture_model_evaluation, capture_prediction_run, data_quality as api_data_quality, entity_profile, health, meetings, model_registry, model_status, monitoring as api_monitoring, normalize_request_id, prediction_run_detail, prediction_runs, predictions, race_card, ready, safeguards, summary, update_bet
+from api import SETTINGS, admin_audit_log, admin_governance, admin_session, approve_model, bet_journal, create_bet, delete_bet, capture_model_evaluation, capture_prediction_run, data_quality as api_data_quality, entity_profile, health, meetings, model_registry, model_status, monitoring as api_monitoring, normalize_request_id, prediction_run_detail, prediction_runs, predictions, race_card, ready, safeguards, summary, supersede_model, update_bet
 from api_contracts import (
+    AdminAuditResponse,
+    AdminGovernanceResponse,
+    AdminSessionResponse,
     BetJournalCreateRequest,
     BetJournalDeleteResponse,
     BetJournalEntryResponse,
@@ -107,6 +110,21 @@ class APIContractTests(unittest.TestCase):
         self.assertEqual(approved.model.id, status["modelVersionId"])
         self.assertEqual(approved.model.id, run.run.modelVersionId)
 
+    def test_admin_governance_endpoints_expose_session_and_audit_contracts(self) -> None:
+        snapshot = ModelSnapshotResponse(**capture_model_evaluation(None))
+        superseded = ModelSnapshotResponse(**supersede_model(snapshot.model.id, None))
+        session = AdminSessionResponse(**admin_session(None))
+        audit = AdminAuditResponse(**admin_audit_log(limit=20, access=None))
+        governance = AdminGovernanceResponse(**admin_governance(None))
+
+        self.assertEqual("superseded", superseded.model.status)
+        self.assertIn("admin", session.roles)
+        self.assertGreaterEqual(audit.page.total, 2)
+        self.assertTrue(any(event.action == "model_version.supersede" for event in audit.events))
+        self.assertEqual(session.actor, governance.session.actor)
+        self.assertGreaterEqual(len(governance.models), 1)
+        self.assertIn(governance.monitoring.status, {"ok", "warning", "blocked", "critical"})
+
     def test_prediction_runs_expose_persisted_scoring_snapshots(self) -> None:
         snapshot = PredictionRunResponse(**capture_prediction_run(None))
         list_response = PredictionRunsResponse(**prediction_runs())
@@ -171,6 +189,7 @@ class APIContractTests(unittest.TestCase):
             backend_cors_origins=("http://horse-predictor.example.com",),
             allowed_hosts=(),
             api_auth_token="short",
+            journal_auth_token="replace-with-a-long-random-token",
             max_request_body_bytes=512,
         )
 
@@ -182,6 +201,7 @@ class APIContractTests(unittest.TestCase):
         self.assertIn("ALLOWED_HOSTS", message)
         self.assertIn("HTTPS", message)
         self.assertIn("32 characters", message)
+        self.assertIn("JOURNAL_AUTH_TOKEN", message)
         self.assertIn("MAX_REQUEST_BODY_BYTES", message)
 
     def test_race_card_supports_runner_search(self) -> None:

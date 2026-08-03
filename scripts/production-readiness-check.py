@@ -34,9 +34,21 @@ REQUIRED_SECURITY_HEADERS = [
 ]
 
 
-def request_json(base_url: str, path: str, timeout: float) -> tuple[dict[str, Any], dict[str, str]]:
+def request_json(
+    base_url: str,
+    path: str,
+    timeout: float,
+    token: str | None = None,
+    actor: str | None = None,
+) -> tuple[dict[str, Any], dict[str, str]]:
     url = f"{base_url}{path}"
-    request = urllib.request.Request(url, headers={"Accept": "application/json"})
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    if actor:
+        headers["X-Admin-Actor"] = actor
+        headers["X-Journal-Actor"] = actor
+    request = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             body = response.read().decode("utf-8")
@@ -170,6 +182,22 @@ def check_security_headers(headers: dict[str, str], args: argparse.Namespace) ->
     return failures
 
 
+def check_admin_governance(base_url: str, args: argparse.Namespace) -> list[str]:
+    failures: list[str] = []
+    session, _ = request_json(base_url, "/api/v1/admin/session", args.timeout, args.admin_token, args.admin_actor)
+    governance, _ = request_json(base_url, "/api/v1/admin/governance", args.timeout, args.admin_token, args.admin_actor)
+    audit, _ = request_json(base_url, "/api/v1/admin/audit-log?limit=25", args.timeout, args.admin_token, args.admin_actor)
+
+    roles = session.get("roles") or []
+    require("admin" in roles, "/api/v1/admin/session must include the admin role.", failures)
+    require(isinstance(governance.get("readiness"), dict), "/api/v1/admin/governance must include readiness.", failures)
+    require(isinstance(governance.get("monitoring"), dict), "/api/v1/admin/governance must include monitoring.", failures)
+    require(isinstance(governance.get("models"), list), "/api/v1/admin/governance must include model rows.", failures)
+    require(isinstance(governance.get("auditEvents"), list), "/api/v1/admin/governance must include recent audit events.", failures)
+    require(isinstance(audit.get("events"), list), "/api/v1/admin/audit-log must include events.", failures)
+    return failures
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run production-readiness smoke checks against the Horse Predictor API.")
     parser.add_argument("--base-url", default=os.getenv("API_BASE_URL", "http://127.0.0.1:8000"))
@@ -184,6 +212,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--min-enrichment-coverage", type=float, default=0.75, help="Minimum required coverage for core enrichment fields.")
     parser.add_argument("--require-monitoring", action="store_true", help="Require the monitoring endpoint to expose metrics and drift checks.")
     parser.add_argument("--require-no-critical-alerts", action="store_true", help="Fail when monitoring reports critical or blocked alerts.")
+    parser.add_argument("--require-admin-governance", action="store_true", help="Require authenticated admin session, governance, and audit endpoints.")
+    parser.add_argument("--admin-token", default=os.getenv("API_AUTH_TOKEN", ""), help="Bearer token for admin governance checks.")
+    parser.add_argument("--admin-actor", default=os.getenv("ADMIN_ACTOR", "readiness-check"), help="Actor label for admin governance checks.")
     parser.add_argument("--require-hsts", action="store_true", help="Require Strict-Transport-Security for HTTPS deployments.")
     return parser.parse_args(argv)
 
@@ -199,6 +230,8 @@ def main(argv: list[str] | None = None) -> int:
 
     failures = check_readiness(payloads, args)
     failures.extend(check_security_headers(response_headers["/api/v1/health"], args))
+    if args.require_admin_governance:
+        failures.extend(check_admin_governance(base_url, args))
     if failures:
         print("Production readiness check failed:")
         for failure in failures:
