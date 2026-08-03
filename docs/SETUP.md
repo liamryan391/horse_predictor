@@ -41,6 +41,8 @@ Important settings:
 
 The backend validates staging/production config at startup. In deployed environments, SQLite is rejected so production work does not accidentally run against a local file database.
 
+For live race-card rehearsal with provider credentials, follow [LIVE_TESTING.md](LIVE_TESTING.md) after the sample app starts successfully.
+
 ## Windows PowerShell
 
 From the repo root:
@@ -82,6 +84,8 @@ python -m venv .venv
 .\.venv\Scripts\python.exe data_pipeline.py --provider sample
 .\.venv\Scripts\python.exe -m uvicorn api:app --reload --host 127.0.0.1 --port 8000
 ```
+
+Do the sample seed before live provider imports. It proves migrations, database writes, API reads, and model scoring without depending on paid provider credentials.
 
 Frontend setup:
 

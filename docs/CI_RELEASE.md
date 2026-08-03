@@ -87,7 +87,7 @@ Run it after backend and frontend previews are live:
 
 ```powershell
 $env:API_AUTH_TOKEN="your-admin-token"
-.\.venv\Scripts\python.exe scripts\visual-smoke-check.py --base-url http://127.0.0.1:5173 --require-admin --screenshot
+.\.venv\Scripts\python.exe scripts\visual-smoke-check.py --base-url http://127.0.0.1:5173 --require-admin --screenshot --verbose
 ```
 
 The script checks Workspace, Race Card, Evaluation, Bet Journal, Responsible Use, and Admin when a token is provided. It closes the browser automatically unless `--keep-open` is set.

@@ -1,6 +1,6 @@
 # Future Roadmap
 
-This document captures longer-term development ideas for Horse Predictor after `ROADMAP02.md`. Phase 12 through Phase 18 are now implemented, so future planning should prioritize the items here by product risk, release readiness, and operator value.
+This document captures longer-term development ideas for Horse Predictor after `ROADMAP02.md` and `ROADMAP03.md`. Phase 12 through Phase 18 are now implemented, and Roadmap03 now prioritizes live provider certification, account ownership, production hosting, race-day operations, browser QA, model quality, and product trust.
 
 ## Future Development Principles
 
@@ -128,6 +128,8 @@ These leads are worth revisiting when planning later phases:
 - The Racing API: https://www.theracingapi.com/
 - The Racing API data coverage: https://www.theracingapi.com/data-coverage
 - OurHub Racing API: https://github.com/TamB10/ourhub-racing-api
+- BSD Horse Racing API: https://sports.bzzoiro.com/docs/horseracing/
+- FormFav API docs: https://formfav.com/docs
 - Betfair Exchange API: https://developer.betfair.com/exchange-api/
 - Betfair API licensing note: https://support.developer.betfair.com/hc/en-us/articles/360002464152-Which-API-Licence-do-I-require-
 - Open-Meteo historical weather API: https://open-meteo.com/en/docs/historical-weather-api
@@ -149,4 +151,4 @@ The strongest future investments are:
 4. Account-backed journal analytics linked to prediction runs and results.
 5. Monitoring for data freshness, drift, and model-quality regression.
 
-These ideas should stay behind `ROADMAP02.md` until Phase 12 through Phase 18 have made the platform stable enough to support them.
+These ideas should stay behind `ROADMAP03.md` until authenticated provider imports, account ownership, and production release operations are stable enough to support them.

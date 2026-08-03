@@ -2,6 +2,43 @@
 
 Professional horse racing intelligence platform powered by API ingestion, MySQL-ready storage, a FastAPI backend, and a React/TypeScript dashboard.
 
+Horse Predictor is built as an operator workspace, not an automated betting bot. It imports race-card and historical-result data, scores current runners with an auditable model, tracks prediction runs and journal entries, and keeps model/data freshness visible before anyone trusts a ranking.
+
+## What the app does
+
+- Imports sample data or licensed provider data into SQL.
+- Serves versioned FastAPI endpoints for meetings, race cards, predictions, data quality, monitoring, model registry, prediction runs, bet journal, and admin governance.
+- Displays a React racing workspace with rankings, race centre, race cards, model evaluation, monitoring, provider freshness, bet journal, responsible-use copy, and admin controls.
+- Stores model artifacts, approval metadata, prediction-run evidence, admin audit events, and server-side journal rows.
+- Runs repeatable CI, release-record, readiness, and visual smoke gates.
+
+## Quick start on Windows
+
+```powershell
+Copy-Item .env.example .env
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+npm.cmd install --prefix frontend
+.\.venv\Scripts\python.exe -m alembic upgrade head
+.\.venv\Scripts\python.exe data_pipeline.py --provider sample
+```
+
+Start the backend:
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn api:app --reload --host 127.0.0.1 --port 8000
+```
+
+Start the frontend in another terminal:
+
+```powershell
+npm.cmd run dev --prefix frontend
+```
+
+Open `http://127.0.0.1:5173`.
+
+For a guided setup and live-provider rehearsal, see [docs/SETUP.md](docs/SETUP.md) and [docs/LIVE_TESTING.md](docs/LIVE_TESTING.md).
+
 ## Current architecture
 
 - `data_pipeline.py`: pulls sample or API data and writes SQL tables.
@@ -37,7 +74,7 @@ c:\python313\python.exe
 
 That system Python does not have the repo dependencies installed. See [DEVNOTES.md](DEVNOTES.md) for the VS Code setup.
 
-## Setup
+## Full setup
 
 ```powershell
 Copy-Item .env.example .env
@@ -96,6 +133,8 @@ docker compose up --build
 
 ## API ingestion
 
+Use sample data first so the database, API, model, and frontend are proven before live provider credentials are introduced.
+
 OurHub Racing race-card ingestion:
 
 ```powershell
@@ -122,6 +161,8 @@ Remote providers support retry, timeout, rate-limit, and pagination controls:
 ```powershell
 .\.venv\Scripts\python.exe data_pipeline.py --provider theracingapi --retry-attempts 5 --min-request-interval-seconds 1
 ```
+
+Live provider calls require valid provider credentials. Without credentials, the app records clear ingestion failures and keeps the sample/demo path usable. See [docs/LIVE_TESTING.md](docs/LIVE_TESTING.md) for the complete live-data checklist.
 
 ## Required data fields
 
@@ -159,7 +200,7 @@ Phase 13 also derives model enrichment fields from the above data: course countr
 This is decision-support software, not guaranteed betting advice. Model quality depends on the amount, accuracy, and freshness of historical results. For production, replace shared bearer tokens with full user authentication, managed hosting, larger provider history, and governed model promotion.
 
 See [ROADMAP.md](ROADMAP.md) for the planned path from prototype to production-ready platform.
-See [ROADMAP02.md](ROADMAP02.md) for the next build roadmap after Phase 11 and [FUTURE_ROADMAP.md](FUTURE_ROADMAP.md) for longer-term development ideas.
+See [ROADMAP02.md](ROADMAP02.md) for the completed Phase 12-18 build plan, [ROADMAP03.md](ROADMAP03.md) for the next roadmap, and [FUTURE_ROADMAP.md](FUTURE_ROADMAP.md) for longer-term development ideas.
 See [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) for imported project context and [docs/WORKFLOW.md](docs/WORKFLOW.md) for the branch and PR workflow.
 See [docs/SETUP.md](docs/SETUP.md) for Windows, Linux/macOS, Docker, and configuration setup.
 See [docs/DATABASE.md](docs/DATABASE.md) for schema, migration, and ingestion-write notes.
@@ -172,6 +213,7 @@ See [docs/MONITORING.md](docs/MONITORING.md) for drift reports, operator alerts,
 See [docs/ADMIN_GOVERNANCE.md](docs/ADMIN_GOVERNANCE.md) for the admin console, bearer-token roles, audit log, and governance checks.
 See [docs/CI_RELEASE.md](docs/CI_RELEASE.md) for GitHub Actions CI, staging acceptance, release records, and visual smoke gates.
 See [docs/TESTING.md](docs/TESTING.md) for automated backend, data/model, frontend utility, and browser smoke checks.
+See [docs/LIVE_TESTING.md](docs/LIVE_TESTING.md) for live provider setup, race-card import checks, DB verification, and local release rehearsal.
 See [docs/CLOUD_STAGING.md](docs/CLOUD_STAGING.md) for staging deployment, migration, ingestion worker, and observability notes.
 See [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) for security, safeguards, launch acceptance, and rollback gates.
 See [docs/MODEL_OPERATIONS.md](docs/MODEL_OPERATIONS.md) for persisted model artifacts, approval, and registry workflow.

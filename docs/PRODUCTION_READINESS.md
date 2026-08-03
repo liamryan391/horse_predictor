@@ -29,7 +29,7 @@ Operational checks:
 
 Dependency scanning:
 
-- `.github/workflows/ci.yml` runs backend, frontend, script, Docker Compose, and diff-hygiene checks on pull requests and key branch pushes.
+- `.github/workflows/ci.yml` runs backend, frontend, script, Docker Compose, and diff-hygiene checks on pull requests plus direct pushes to `development` and `main`.
 - `.github/workflows/staging-acceptance.yml` can run release gates and upload a release-record artifact from a staging API URL.
 - `.github/dependabot.yml` checks Python, frontend npm, and GitHub Actions dependencies weekly.
 - Review Dependabot security PRs before routine version bumps.
@@ -125,6 +125,6 @@ Rollback:
 
 ## Agent Browser Gate
 
-When `agent-browser` is available on PATH, run `scripts/visual-smoke-check.py` from `docs/TESTING.md` against the deployed frontend before marking launch acceptance complete.
+When `agent-browser` is available on PATH, run `scripts/visual-smoke-check.py --verbose` from `docs/TESTING.md` against the deployed frontend before marking launch acceptance complete.
 
 See [CI_RELEASE.md](CI_RELEASE.md) for the full Phase 18 CI, staging acceptance, release-record, and visual gate workflow.

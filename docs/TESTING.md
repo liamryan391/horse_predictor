@@ -75,13 +75,17 @@ Run the provider-depth check with live weather-provider access:
 When `agent-browser` is available on PATH, use it for the visual pass:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\visual-smoke-check.py --base-url http://127.0.0.1:5173
+.\.venv\Scripts\python.exe scripts\visual-smoke-check.py --base-url http://127.0.0.1:5173 --verbose
 ```
 
 Use `--require-admin --admin-token $env:API_AUTH_TOKEN` when the Admin Console should be included in the visual gate.
 
+If `agent-browser` reports a daemon connection timeout or leaves a stuck helper process, run `agent-browser close --all` and `agent-browser doctor --fix`, then restart the terminal or Codex Desktop if needed. Treat that as a browser-automation tool issue when the HTTP API, frontend dev server, and build checks are otherwise green.
+
+For provider-credential rehearsal, database verification, track matching, and live race-card checks, see [LIVE_TESTING.md](LIVE_TESTING.md).
+
 ## CI
 
-GitHub Actions CI now runs backend, frontend, script syntax, Docker Compose config, and diff-hygiene checks on pull requests and key branch pushes.
+GitHub Actions CI now runs backend, frontend, script syntax, Docker Compose config, and diff-hygiene checks on pull requests plus direct pushes to `development` and `main`.
 
 See [CI_RELEASE.md](CI_RELEASE.md) for CI jobs, staging acceptance, release-record output, and visual gate details.

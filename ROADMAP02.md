@@ -215,7 +215,7 @@ Current inspection: `.github/workflows/ci.yml` now runs backend compile/migratio
 - Add `agent-browser` visual smoke checks once local preview access is stable.
 - Cover workspace, race card, evaluation, journal, responsible-use page, and mobile viewport.
 
-Current inspection: `scripts/visual-smoke-check.py` now uses `agent-browser` to verify the frontend has content, has no framework error overlay, and can navigate Workspace, Bet Journal, Responsible Use, and Admin when an admin token is supplied. The testing docs now treat this as the visual gate for UI or staging acceptance work.
+Current inspection: `scripts/visual-smoke-check.py` now uses `agent-browser` to verify the frontend has content, has no framework error overlay, and can navigate Workspace, Race Card, Evaluation, Bet Journal, Responsible Use, Admin when an admin token is supplied, and a mobile viewport. The testing docs now treat this as the visual gate for UI or staging acceptance work, with `--verbose` available for diagnosing local daemon hangs.
 
 ### 18.3 Release Checklist
 
@@ -226,8 +226,8 @@ Current inspection: `.github/workflows/staging-acceptance.yml` can run release-g
 
 ## Recommended Next Phase
 
-Roadmap02 Phases 12 through 18 are now implemented. Choose the next build from `FUTURE_ROADMAP.md`.
+Roadmap02 Phases 12 through 18 are now implemented. The next build plan continues in `ROADMAP03.md`, with longer-term ideas still tracked in `FUTURE_ROADMAP.md`.
 
-Recommended next direction: account-backed authentication and user ownership.
+Recommended next direction: live provider certification.
 
-Reason: Phase 18 gives the project repeatable CI and release gates. The next platform risk is replacing shared bearer tokens and operator-local journal ownership with named users, durable roles, account-scoped bet history, and stronger admin governance.
+Reason: Phase 18 gives the project repeatable CI and release gates, but authenticated provider imports still need to be proven end to end before the app can honestly move beyond sample/demo race cards.
