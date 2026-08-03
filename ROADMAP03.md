@@ -221,20 +221,23 @@ Goal: make visual and workflow testing reliable enough for release blocking.
 
 ### 25.1 Agent-Browser Stabilization
 
-- Diagnose local `agent-browser` daemon hangs.
-- Add a cleanup/reset helper script for Windows.
-- Keep `scripts/visual-smoke-check.py --verbose` as the standard diagnostic mode.
+- Current status: `scripts/agent-browser-reset.ps1` and `scripts/agent-browser-reset.sh` close stuck sessions, clean up helper processes, and run `agent-browser doctor --fix` with a timeout.
+- Current status: `scripts/visual-smoke-check.py --reset-browser` can reset the daemon before opening the frontend.
+- Keep `scripts/visual-smoke-check.py --reset-browser --verbose` as the standard diagnostic mode when the local preview is unstable.
 
 ### 25.2 Dedicated E2E Runner
 
-- Add Playwright or another deterministic browser runner for CI-safe UI checks.
-- Cover Workspace, Race Centre, Race Card, Evaluation, Monitoring, Bet Journal, Responsible Use, and Admin.
+- Current status: the agent-browser visual gate now covers Workspace, Race Centre, Race-Day Board, Race Card, Evaluation, Bet Journal, Responsible Use, and optional Admin.
+- Current status: CI syntax-checks the agent-browser reset shell helper.
+- Next: add Playwright or another deterministic browser runner for CI-safe UI checks.
+- Cover Monitoring in the browser flow after its DOM anchors are made stable enough for automation.
 - Run with seeded test DB and no external provider dependency.
 
 ### 25.3 Accessibility And Mobile Checks
 
-- Add automated accessibility smoke checks.
-- Add mobile viewport assertions for compact race-day use.
+- Current status: the visual smoke check still asserts the app renders at a compact mobile viewport.
+- Next: add automated accessibility smoke checks.
+- Next: add mobile viewport assertions for compact Race Centre and race-day board layout.
 
 ## Phase 26: Model Quality And Betting Analytics
 
@@ -281,4 +284,4 @@ Goal: make the product safe to share outside local development.
 
 ## Recommended Next Roadmap03 Step
 
-Phase 24 now exposes a race-day operational read model and surfaces next-race, status, provider, import, and data-age context in the Race Centre. Move next into Phase 25: Browser And End-To-End QA, so visual and workflow checks become reliable enough to protect release candidates.
+Phase 25 now has agent-browser reset helpers and stronger visual smoke coverage for the Race Centre and Race-Day Board. Move next into Phase 26: Model Quality And Betting Analytics, while keeping a future task open for a CI-safe Playwright-style runner.

@@ -90,13 +90,13 @@ Release records are ignored by git and should be stored as CI artifacts or relea
 
 ## Visual Gate
 
-`scripts/visual-smoke-check.py` uses the local `agent-browser` CLI to verify the frontend loads, has no Vite/Next/Webpack error overlay, can navigate core tabs, can open Race Card and Evaluation workspace views, and still renders at a mobile viewport.
+`scripts/visual-smoke-check.py` uses the local `agent-browser` CLI to verify the frontend loads, has no Vite/Next/Webpack error overlay, can navigate core tabs, can open Race Centre, Race Card, and Evaluation workspace views, can see the Race-Day Board, and still renders at a mobile viewport.
 
 Run it after backend and frontend previews are live:
 
 ```powershell
 $env:ACCOUNT_AUTH_TOKEN="your-admin-account-token"
-.\.venv\Scripts\python.exe scripts\visual-smoke-check.py --base-url http://127.0.0.1:5173 --require-admin --screenshot --verbose
+.\.venv\Scripts\python.exe scripts\visual-smoke-check.py --base-url http://127.0.0.1:5173 --reset-browser --require-admin --screenshot --verbose
 ```
 
-The script checks Workspace, Race Card, Evaluation, Bet Journal, Responsible Use, and Admin when a token is provided. It closes the browser automatically unless `--keep-open` is set.
+The script checks Workspace, Race Centre, Race-Day Board, Race Card, Evaluation, Bet Journal, Responsible Use, and Admin when a token is provided. It closes the browser automatically unless `--keep-open` is set. Use `scripts/agent-browser-reset.ps1` or `scripts/agent-browser-reset.sh` when the daemon is stuck before rerunning the visual gate.

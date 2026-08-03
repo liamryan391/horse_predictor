@@ -123,9 +123,27 @@ When `agent-browser` is available on PATH, use it for the visual pass:
 .\.venv\Scripts\python.exe scripts\visual-smoke-check.py --base-url http://127.0.0.1:5173 --verbose
 ```
 
+Add `--reset-browser` when a previous browser daemon was left open or the page preview reports `127.0.0.1 refused to connect` after the dev servers have been restarted:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\visual-smoke-check.py --base-url http://127.0.0.1:5173 --reset-browser --verbose
+```
+
 Use `--require-admin --admin-token $env:ACCOUNT_AUTH_TOKEN` when the Admin Console should be included in the visual gate.
 
-If `agent-browser` reports a daemon connection timeout or leaves a stuck helper process, run `agent-browser close --all` and `agent-browser doctor --fix`, then restart the terminal or Codex Desktop if needed. Treat that as a browser-automation tool issue when the HTTP API, frontend dev server, and build checks are otherwise green.
+The visual gate checks page content, framework overlays, Workspace, Race Centre, Race-Day Board, Race Card, Evaluation, Bet Journal, Responsible Use, and mobile rendering. Admin is included only when a token is supplied.
+
+If `agent-browser` reports a daemon connection timeout or leaves a stuck helper process, run the reset helper, then restart the terminal or Codex Desktop if needed:
+
+```powershell
+.\scripts\agent-browser-reset.ps1
+```
+
+```bash
+scripts/agent-browser-reset.sh
+```
+
+Treat a repeated daemon timeout as a browser-automation tool issue when the HTTP API, frontend dev server, and build checks are otherwise green.
 
 For provider-credential rehearsal, database verification, track matching, and live race-card checks, see [LIVE_TESTING.md](LIVE_TESTING.md).
 

@@ -107,6 +107,7 @@ jobs:
       - name: Check shell scripts
         run: |
           bash -n scripts/start-dev.sh
+          bash -n scripts/agent-browser-reset.sh
           bash -n scripts/staging-release.sh
           bash -n scripts/run-ingestion-worker.sh
 

@@ -18,10 +18,6 @@ def agent_browser_command(capture_output: bool = True) -> list[str]:
     executable = shutil.which("agent-browser")
     if executable is None:
         raise RuntimeError("agent-browser is not installed or not on PATH.")
-    if os.name == "nt" and not capture_output:
-        cmd_executable = shutil.which("agent-browser.cmd")
-        if cmd_executable:
-            return ["cmd.exe", "/d", "/c", cmd_executable]
     if os.name == "nt":
         native_executable = (
             Path(executable).parent
@@ -32,6 +28,10 @@ def agent_browser_command(capture_output: bool = True) -> list[str]:
         )
         if native_executable.exists():
             return [str(native_executable)]
+        if not capture_output:
+            cmd_executable = shutil.which("agent-browser.cmd")
+            if cmd_executable:
+                return ["cmd.exe", "/d", "/c", cmd_executable]
     return [executable]
 
 
@@ -80,6 +80,19 @@ def wait_for_render(timeout: float) -> None:
     run_agent(["wait", "1500"], timeout, capture_output=False)
 
 
+def reset_agent_browser(timeout: float, verbose: bool) -> None:
+    log_step("reset agent-browser sessions", verbose)
+    try:
+        run_agent(["close", "--all"], timeout)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        pass
+    try:
+        run_agent(["doctor", "--fix"], timeout)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        if verbose:
+            print(f"Visual smoke: agent-browser doctor did not complete cleanly: {exc}", flush=True)
+
+
 def click_button(label: str, timeout: float) -> None:
     script = (
         "(() => { const button = Array.from(document.querySelectorAll('button'))"
@@ -104,6 +117,8 @@ def run_visual_smoke(args: argparse.Namespace) -> None:
 
     base_url = args.base_url.rstrip("/")
     try:
+        if args.reset_browser:
+            reset_agent_browser(args.timeout, args.verbose)
         log_step("open frontend", args.verbose)
         run_agent(["open", base_url], args.timeout, capture_output=False)
         wait_for_render(args.timeout)
@@ -127,6 +142,10 @@ def run_visual_smoke(args: argparse.Namespace) -> None:
         log_step("navigate workspace", args.verbose)
         click_button("Workspace", args.timeout)
         assert_body_contains("Today's racing desk", args.timeout)
+        log_step("navigate race centre", args.verbose)
+        click_button("Race Centre", args.timeout)
+        assert_body_contains("Race-Day Board", args.timeout)
+        assert_body_contains("Race Centre", args.timeout)
         log_step("navigate race card", args.verbose)
         click_button("Race Card", args.timeout)
         assert_body_contains("SURFACE", args.timeout)
@@ -189,6 +208,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--admin-actor", default=os.getenv("ADMIN_ACTOR", "visual-smoke"))
     parser.add_argument("--require-admin", action="store_true", help="Fail unless the Admin tab is checked with a token.")
     parser.add_argument("--allow-missing", action="store_true", help="Skip instead of failing when agent-browser is unavailable.")
+    parser.add_argument("--reset-browser", action="store_true", help="Close and repair agent-browser sessions before opening the app.")
     parser.add_argument("--screenshot", action="store_true", help="Capture an annotated screenshot at the final state.")
     parser.add_argument("--skip-mobile", action="store_true", help="Skip the mobile viewport content check.")
     parser.add_argument("--mobile-width", type=int, default=390)

@@ -210,11 +210,10 @@ When `agent-browser` is healthy:
 If `agent-browser` cannot open the page and reports a daemon connection timeout, run:
 
 ```powershell
-agent-browser close --all
-agent-browser doctor --fix
+.\scripts\agent-browser-reset.ps1
 ```
 
-If the daemon still hangs, restart the terminal or Codex Desktop, then rerun the visual gate. Continue API and build checks while treating browser automation as tool-side blocked.
+If the daemon still hangs, restart the terminal or Codex Desktop, then rerun the visual gate with `--reset-browser`. Continue API and build checks while treating browser automation as tool-side blocked.
 
 ## Release Rehearsal
 
