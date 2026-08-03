@@ -208,7 +208,7 @@ Goal: turn the current manual validation list into repeatable automation.
 - Add Dependabot review workflow notes.
 - Block merge when tests fail.
 
-Current inspection: `.github/workflows/ci.yml` now runs backend compile/migrations/tests, frontend install/tests/build, shell syntax, Docker Compose config, and diff-hygiene checks on PRs into `development`/`main` and pushes to key branches. `.github/dependabot.yml` already covers pip, npm, and GitHub Actions updates, and the PR template now asks for CI, visual, release-record, and token-handling checks.
+Current inspection: `.github/workflows/ci.yml` now runs backend compile/migrations/tests, frontend install/tests/build, shell syntax, Docker Compose config, and diff-hygiene checks on PRs into `development`/`main` and direct pushes to those protected branches. `.github/dependabot.yml` already covers pip, npm, and GitHub Actions updates, and the PR template now asks for CI, visual, release-record, and token-handling checks.
 
 ### 18.2 Browser Verification
 

@@ -4,7 +4,7 @@ Phase 18 turns the manual validation list into repeatable checks.
 
 ## Pull Request CI
 
-`.github/workflows/ci.yml` runs on pull requests into `development` or `main`, and on pushes to `development`, `main`, or `agent/**`.
+`.github/workflows/ci.yml` runs on pull requests into `development` or `main`, and on direct pushes to `development` or `main`.
 
 The workflow has three jobs:
 
