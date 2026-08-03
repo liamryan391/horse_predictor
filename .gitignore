@@ -5,7 +5,9 @@ __pycache__/
 *.py[cod]
 *.db
 model_artifacts/
+broker_payloads/
 release-records/
+backups/
 .streamlit/
 node_modules/
 frontend/node_modules/

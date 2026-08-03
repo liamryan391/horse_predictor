@@ -9,19 +9,21 @@ Runtime controls:
 - `APP_ENV=staging` or `APP_ENV=production` fails fast unless `DATABASE_URL` is a managed SQL database.
 - `BACKEND_CORS_ORIGINS` must be explicitly set and must use HTTPS outside local development.
 - `ALLOWED_HOSTS` must be explicitly set in staging and production.
-- `API_AUTH_TOKEN` must be a non-placeholder secret with at least 32 characters.
-- `JOURNAL_AUTH_TOKEN` must be a non-placeholder secret with at least 32 characters.
+- `ACCOUNT_AUTH_ENABLED=true` is the preferred staging/production auth mode.
+- Named operator accounts store hashed bearer tokens and role assignments in `operator_accounts`.
+- `API_AUTH_TOKEN` and `JOURNAL_AUTH_TOKEN` are legacy local-development fallback tokens; if `ACCOUNT_AUTH_ENABLED=false` is deliberately used, both must be non-placeholder secrets with at least 32 characters.
 - `JOURNAL_ACCOUNT_KEY` must be non-empty for server-side journal ownership.
 - `MAX_REQUEST_BODY_BYTES` rejects oversized requests before route handlers run.
 - `REQUIRE_APPROVED_MODEL_ARTIFACT=true` requires an approved, loadable model artifact before prediction serving is ready.
 - Monitoring thresholds are configurable with `MONITORING_DRIFT_WARNING_THRESHOLD`, `MONITORING_DRIFT_CRITICAL_THRESHOLD`, `MONITORING_SLOW_REQUEST_MS`, and `MONITORING_MAX_ERROR_RATE`.
 - API responses include request IDs and baseline security headers.
-- Administrative and journal routes compare bearer tokens with constant-time comparison.
-- Governed admin writes record audit rows in `admin_audit_events`.
+- Administrative and journal routes resolve bearer tokens to named accounts before applying role checks.
+- Governed admin writes record audit rows in `admin_audit_events`, including operator-account changes.
 
 Operational checks:
 
-- Rotate `API_AUTH_TOKEN`, `JOURNAL_AUTH_TOKEN`, provider credentials, and database passwords before production launch.
+- Rotate account bearer tokens, provider credentials, and database passwords before production launch.
+- Create at least one admin-capable operator account before exposing staging admin routes.
 - Use separate MySQL users for application reads/writes, migrations, backups, and provider import jobs.
 - Restrict the application database user to the `horse_predictor` schema.
 - Enable platform DDoS/rate-limit protections in front of the built-in single-process limiter.
@@ -56,6 +58,15 @@ Before launch, prove that production data can be restored into an isolated stagi
 ```
 
 6. Confirm `/api/v1/summary` reports fresh data, `/api/v1/data-quality` reports acceptable enrichment coverage, `/api/v1/monitoring` reports populated drift checks, `/api/v1/model/evaluation` is acceptable for launch, and `/api/v1/model` reports `servingMode=artifact`.
+
+Phase 23 adds helper checks:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\staging-env-check.py --env-file .env.production --require-release-token --require-policy-links --require-provider-credentials
+.\.venv\Scripts\python.exe scripts\managed-db-rehearsal.py --mode roundtrip --source-url $env:DATABASE_URL --restore-url $env:RESTORE_DATABASE_URL --backup-path backups\production-rehearsal.sql
+```
+
+See [MANAGED_DATA.md](MANAGED_DATA.md) for dry-run and `--execute` usage.
 
 ## Product Safeguards
 
@@ -107,7 +118,7 @@ When production is expected to serve from a persisted artifact, add `--require-a
 When production is expected to have persisted scoring evidence, add `--require-prediction-run` too.
 When production is expected to have provider-grade enrichment coverage, add `--require-enriched-data`.
 When production monitoring should be release-blocking, add `--require-monitoring --require-no-critical-alerts`.
-When production admin governance should be release-blocking, add `--require-admin-governance` and provide `API_AUTH_TOKEN`.
+When production admin governance should be release-blocking, add `--require-admin-governance` and provide an admin-capable account bearer token.
 
 Monitored release:
 

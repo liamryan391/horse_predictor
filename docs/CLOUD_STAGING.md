@@ -20,8 +20,7 @@ Required staging values:
 - `DATABASE_URL`
 - `BACKEND_CORS_ORIGINS`
 - `ALLOWED_HOSTS`
-- `API_AUTH_TOKEN`
-- `JOURNAL_AUTH_TOKEN`
+- `ACCOUNT_AUTH_ENABLED=true`
 - `JOURNAL_ACCOUNT_KEY`
 - `VITE_API_BASE_URL`
 - provider credentials when moving beyond `HORSE_API_PROVIDER=sample`
@@ -58,6 +57,12 @@ Set `SEED_SAMPLE_DATA=true` only for an empty demonstration environment.
 
 Set `RUN_ACCEPTANCE_CHECKS=true`, `API_BASE_URL=<staging-api-url>`, and `RELEASE_RECORD_PATH=release-records/staging-release-record.json` when the same command should also run release gates and write release evidence.
 
+Before deployment, validate the secret/config export:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\staging-env-check.py --env-file .env.staging --require-release-token --require-policy-links
+```
+
 ## Staging Compose Rehearsal
 
 Validate the staging manifest shape with:
@@ -67,6 +72,16 @@ docker compose --env-file .env.staging.example -f docker-compose.staging.yml con
 ```
 
 The staging compose file expects a managed `DATABASE_URL`; it does not provision MySQL. Local database rehearsal remains in `docker-compose.yml`.
+
+## Managed Data Rehearsal
+
+Before using a staging or production database for release acceptance, run a backup/restore rehearsal into an isolated restore-test database:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\managed-db-rehearsal.py --mode roundtrip --source-url $env:DATABASE_URL --restore-url $env:RESTORE_DATABASE_URL --backup-path backups\staging-rehearsal.sql
+```
+
+Add `--execute` only after confirming the plan. See [MANAGED_DATA.md](MANAGED_DATA.md) for the full managed database and rollback runbook.
 
 ## Ingestion Worker
 
@@ -110,7 +125,7 @@ The summary endpoint returns `dataFreshness.status`, `ageHours`, and `maxAgeHour
 - The reviewed candidate can be approved through `POST /api/v1/admin/model/{model_version_id}/approve` after artifact checksum and feature-schema checks pass.
 - `/api/v1/ready` returns `ok` after artifact-backed model approval.
 - A prediction snapshot can be recorded through `POST /api/v1/admin/prediction-runs?require_approved_model=true` after model approval.
-- The Admin Console loads with `API_AUTH_TOKEN`, and `/api/v1/admin/audit-log` shows the model and prediction actions.
+- The Admin Console loads with an admin-capable account token, and `/api/v1/admin/audit-log` shows the model and prediction actions.
 - `MODEL_ARTIFACT_DIR` should point at durable storage; the staging compose file mounts `/app/model_artifacts` as a named volume.
 - `python scripts/production-readiness-check.py --base-url <api-url> --require-approved-artifact --require-monitoring --require-admin-governance` passes.
 - `python scripts/release-record.py --base-url <api-url> --output release-records/staging-release-record.json` captures commit, migration, model, prediction-run, freshness, monitoring, and audit evidence.

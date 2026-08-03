@@ -153,7 +153,7 @@ def run_visual_smoke(args: argparse.Namespace) -> None:
             assert_body_contains("Audit History", args.timeout)
             assert_body_contains("Governed Actions", args.timeout)
         elif args.require_admin:
-            raise RuntimeError("--require-admin needs --admin-token or API_AUTH_TOKEN.")
+            raise RuntimeError("--require-admin needs --admin-token, ACCOUNT_AUTH_TOKEN, or API_AUTH_TOKEN.")
 
         if not args.skip_mobile:
             log_step("check mobile viewport", args.verbose)
@@ -185,7 +185,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run an agent-browser visual smoke check for Horse Predictor.")
     parser.add_argument("--base-url", default=os.getenv("FRONTEND_BASE_URL", "http://127.0.0.1:5173"))
     parser.add_argument("--timeout", type=float, default=30.0)
-    parser.add_argument("--admin-token", default=os.getenv("API_AUTH_TOKEN", ""))
+    parser.add_argument("--admin-token", default=os.getenv("ACCOUNT_AUTH_TOKEN") or os.getenv("API_AUTH_TOKEN", ""))
     parser.add_argument("--admin-actor", default=os.getenv("ADMIN_ACTOR", "visual-smoke"))
     parser.add_argument("--require-admin", action="store_true", help="Fail unless the Admin tab is checked with a token.")
     parser.add_argument("--allow-missing", action="store_true", help="Skip instead of failing when agent-browser is unavailable.")

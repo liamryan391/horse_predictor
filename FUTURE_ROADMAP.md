@@ -1,6 +1,6 @@
 # Future Roadmap
 
-This document captures longer-term development ideas for Horse Predictor after `ROADMAP02.md` and `ROADMAP03.md`. Phase 12 through Phase 18 are now implemented, and Roadmap03 now prioritizes live provider certification, account ownership, production hosting, race-day operations, browser QA, model quality, and product trust.
+This document captures longer-term development ideas for Horse Predictor after `ROADMAP02.md` and `ROADMAP03.md`. Phase 12 through Phase 18 are now implemented, and Roadmap03 now prioritizes live provider certification, a cost-aware local data broker, optional local AI assistance, account ownership, production hosting, race-day operations, browser QA, model quality, and product trust.
 
 ## Future Development Principles
 
@@ -9,6 +9,7 @@ This document captures longer-term development ideas for Horse Predictor after `
 - Prefer auditable model and prediction workflows over opaque shortcuts.
 - Prioritize user trust: freshness, uncertainty, holdout metrics, and responsible-use copy should stay visible.
 - Treat every paid API, exchange API, and odds feed as a product/legal decision before it becomes an engineering task.
+- Treat local LLMs as optional helpers for normalization and explanation, not as a source of official race facts.
 
 ## Data And Provider Strategy
 
@@ -16,12 +17,28 @@ Longer-term model quality will depend on richer racing context than the current 
 
 Future ideas:
 
-- Build a provider comparison matrix for The Racing API, OurHub Racing API, Odds API, Betfair, and any official/licensed racing data partners.
+- Build a provider comparison matrix for The Racing API, OurHub Racing API, BSD Horse Racing, FormFav, The Odds API, Betfair, Sportradar, and any official/licensed racing data partners.
 - Add a provider abstraction for racecards, results, runner history, odds snapshots, ratings, course metadata, and market movements.
 - Store provider provenance on every imported row so model outputs can be traced back to source and timestamp.
 - Expand the curated course metadata list and replace manual coordinates with governed provider or official course references.
 - Add regional provider support only where the app has enough historical depth to evaluate fairly.
 - Add provider cost, quota, terms, and redistribution notes to operational docs before production use.
+- Keep a local data-broker option available so the app is not forced into a high monthly provider plan before the product value is proven.
+
+## Local AI And DIY API Strategy
+
+Local AI can reduce experimentation costs, especially for payload review, explanations, and mapping suggestions. It cannot replace licensed racecards, odds, official results, or stable identifiers.
+
+Future ideas:
+
+- Extend the Phase 20 local broker from raw-cache inspection into full app-owned racecards, results, odds, and provider plugin endpoints.
+- Add manual CSV import controls alongside the current manual JSON normalization and cached payload replay path.
+- Deepen optional OpenAI-compatible local AI provider support for Ollama, LM Studio, and llama-cpp-python.
+- Use local AI to suggest course aliases, provider field mappings, anomaly notes, and race-summary copy.
+- Validate AI outputs with JSON schemas and store them separately from provider-supplied facts.
+- Keep `AI_PROVIDER=disabled` as the default until local model quality is proven for each operator machine.
+- Add richer local AI checks for latency, structured output quality, and fallback behavior.
+- Keep hosted OpenAI as an optional paid enhancement for summaries or operator assistance, not a required dependency.
 
 ## Market And Odds Intelligence
 
@@ -130,11 +147,20 @@ These leads are worth revisiting when planning later phases:
 - OurHub Racing API: https://github.com/TamB10/ourhub-racing-api
 - BSD Horse Racing API: https://sports.bzzoiro.com/docs/horseracing/
 - FormFav API docs: https://formfav.com/docs
+- The Odds API: https://the-odds-api.com/
+- The Odds API v4 docs: https://the-odds-api.com/liveapi/guides/v4/
 - Betfair Exchange API: https://developer.betfair.com/exchange-api/
+- Sportradar odds APIs: https://developer.sportradar.com/odds/reference/intro
 - Betfair API licensing note: https://support.developer.betfair.com/hc/en-us/articles/360002464152-Which-API-Licence-do-I-require-
 - Open-Meteo historical weather API: https://open-meteo.com/en/docs/historical-weather-api
 - BHA ratings database: https://www.britishhorseracing.com/regulation/official-ratings/ratings-database/
 - Odds API racing reference: https://api.odds-api.net/v1/reference
+- Ollama OpenAI compatibility: https://docs.ollama.com/api/openai-compatibility
+- Ollama API introduction: https://docs.ollama.com/api/introduction
+- LM Studio OpenAI compatibility: https://lmstudio.ai/docs/developer/openai-compat
+- LM Studio local server: https://lmstudio.ai/docs/developer/core/server
+- llama-cpp-python OpenAI-compatible server: https://llama-cpp-python.readthedocs.io/en/latest/server/
+- OpenAI API pricing: https://developers.openai.com/api/docs/pricing
 - Racing Post racecard UX update: https://www.racingpost.com/news/find-out-what-is-new-on-the-updated-racing-post-racecards-agNRD5B1qzui/
 - MLflow model registry workflow: https://www.mlflow.org/docs/latest/ml/model-registry/workflow/
 - Evidently data drift docs: https://docs.evidentlyai.com/metrics/preset_data_drift

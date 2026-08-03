@@ -1,15 +1,23 @@
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Iterable, List, Optional
+from urllib.parse import urlparse
 
 import pandas as pd
 import requests
 
 from race_enrichment import enrich_race_frame
 from schema import RACE_COLUMNS
+
+
+DEFAULT_PROVIDER_BASE_URLS = {
+    "ourhub": "https://api.ourhub.site/api",
+    "theracingapi": "https://api.theracingapi.com",
+}
 
 
 @dataclass(frozen=True)
@@ -41,11 +49,20 @@ class ValidationIssue:
     message: str
 
 
+@dataclass(frozen=True)
+class RawProviderPayload:
+    resource: str
+    endpoint: str
+    payload: dict | list
+    params: dict | None = None
+
+
 @dataclass
 class ProviderResult:
     historical: pd.DataFrame
     current: pd.DataFrame
     validation_issues: list[ValidationIssue] = field(default_factory=list)
+    raw_payloads: list[RawProviderPayload] = field(default_factory=list)
 
 
 class HTTPClient:
@@ -75,8 +92,8 @@ class HTTPClient:
                     timeout=self.config.timeout_seconds,
                 )
                 if response.status_code in {408, 425, 429, 500, 502, 503, 504}:
-                    response.raise_for_status()
-                response.raise_for_status()
+                    self._raise_for_status(response)
+                self._raise_for_status(response)
                 return response.json()
             except requests.RequestException:
                 if attempt >= self.config.retry_attempts:
@@ -84,6 +101,17 @@ class HTTPClient:
                 time.sleep(self.config.retry_backoff_seconds * attempt)
 
         raise RuntimeError(f"Failed to fetch {url}")
+
+    @staticmethod
+    def _raise_for_status(response: requests.Response) -> None:
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            detail = response.text.strip().replace("\n", " ")[:300]
+            message = f"{exc}"
+            if detail:
+                message = f"{message}. Response detail: {detail}"
+            raise requests.HTTPError(message, response=response) from exc
 
     def _respect_rate_limit(self) -> None:
         if self.config.min_request_interval_seconds <= 0:
@@ -262,6 +290,10 @@ def maybe_next_page(payload: dict | list) -> int | None:
 
 
 def fetch_paginated(client: HTTPClient, endpoint: str, params: dict, preferred_keys: Iterable[str]) -> list[dict]:
+    return combine_payload_pages(fetch_paginated_payloads(client, endpoint, params), preferred_keys)
+
+
+def fetch_paginated_payloads(client: HTTPClient, endpoint: str, params: dict) -> list[dict | list]:
     payloads = []
     next_page: int | None = 1
     page_count = 0
@@ -271,7 +303,18 @@ def fetch_paginated(client: HTTPClient, endpoint: str, params: dict, preferred_k
         payloads.append(payload)
         page_count += 1
         next_page = maybe_next_page(payload)
-    return combine_payload_pages(payloads, preferred_keys)
+    return payloads
+
+
+def has_http_base_url(value: str) -> bool:
+    parsed = urlparse(value)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def resolve_provider_base_url(provider: str, base_url: str = "", allow_override: bool = False) -> str:
+    if allow_override and has_http_base_url(base_url):
+        return base_url
+    return DEFAULT_PROVIDER_BASE_URLS.get(provider, base_url)
 
 
 class ProviderAdapter:
@@ -292,8 +335,9 @@ class GenericProviderAdapter(ProviderAdapter):
         if not self.config.base_url or not self.config.api_key:
             raise ValueError("Set HORSE_API_BASE_URL and HORSE_API_KEY for the generic provider.")
 
+        current_params = {"days_ahead": context.days_ahead}
         historical_payload = self.client.fetch_json("/historical-races")
-        current_payload = self.client.fetch_json("/current-races", params={"days_ahead": context.days_ahead})
+        current_payload = self.client.fetch_json("/current-races", params=current_params)
 
         historical_df, historical_issues = normalize_provider_records(
             extract_records(historical_payload, ["historical", "results"]),
@@ -303,7 +347,15 @@ class GenericProviderAdapter(ProviderAdapter):
             extract_records(current_payload, ["current", "racecards", "results"]),
             current_mode=True,
         )
-        return ProviderResult(historical_df, current_df, historical_issues + current_issues)
+        return ProviderResult(
+            historical_df,
+            current_df,
+            historical_issues + current_issues,
+            raw_payloads=[
+                RawProviderPayload("historical_races", "/historical-races", historical_payload),
+                RawProviderPayload("current_races", "/current-races", current_payload, current_params),
+            ],
+        )
 
 
 class OurHubProviderAdapter(ProviderAdapter):
@@ -312,15 +364,26 @@ class OurHubProviderAdapter(ProviderAdapter):
     def fetch(self, context: FetchContext) -> ProviderResult:
         if not self.config.api_key:
             raise ValueError("Set HORSE_API_KEY for OurHub Racing.")
-        if not self.config.base_url:
-            self.config = APIConfig(**{**self.config.__dict__, "base_url": "https://api.ourhub.site/api"})
+        resolved_base_url = resolve_provider_base_url(self.provider_name, self.config.base_url)
+        if self.config.base_url != resolved_base_url:
+            self.config = APIConfig(**{**self.config.__dict__, "base_url": resolved_base_url})
             self.client = HTTPClient(self.config)
 
         target_date = (date.today() + timedelta(days=context.days_ahead)).isoformat()
-        course_payload = self.client.fetch_json(f"/course-info/{target_date}")
-        runner_payload = self.client.fetch_json(f"/runner-info/{target_date}")
+        course_endpoint = f"/course-info/{target_date}"
+        runner_endpoint = f"/runner-info/{target_date}"
+        course_payload = self.client.fetch_json(course_endpoint)
+        runner_payload = self.client.fetch_json(runner_endpoint)
         current_df, issues = flatten_ourhub_payload(course_payload, runner_payload, target_date)
-        return ProviderResult(pd.DataFrame(columns=RACE_COLUMNS), current_df, issues)
+        return ProviderResult(
+            pd.DataFrame(columns=RACE_COLUMNS),
+            current_df,
+            issues,
+            raw_payloads=[
+                RawProviderPayload("course_info", course_endpoint, course_payload),
+                RawProviderPayload("runner_info", runner_endpoint, runner_payload),
+            ],
+        )
 
 
 class TheRacingApiProviderAdapter(ProviderAdapter):
@@ -329,21 +392,35 @@ class TheRacingApiProviderAdapter(ProviderAdapter):
     def fetch(self, context: FetchContext) -> ProviderResult:
         if not self.config.username or not self.config.password:
             raise ValueError("Set RACING_API_USERNAME and RACING_API_PASSWORD for The Racing API.")
-        if not self.config.base_url:
-            self.config = APIConfig(**{**self.config.__dict__, "base_url": "https://api.theracingapi.com"})
+        resolved_base_url = resolve_provider_base_url(self.provider_name, self.config.base_url)
+        if self.config.base_url != resolved_base_url:
+            self.config = APIConfig(**{**self.config.__dict__, "base_url": resolved_base_url})
             self.client = HTTPClient(self.config)
 
-        historical_records = fetch_paginated(
+        historical_params = {"start_date": context.history_start, "end_date": context.history_end, "limit": 50}
+        historical_payloads = fetch_paginated_payloads(
             self.client,
             "/v1/results",
-            {"start_date": context.history_start, "end_date": context.history_end, "limit": 50},
-            ["results"],
+            historical_params,
         )
-        current_payload = self.client.fetch_json("/v1/racecards", params={"day": "today"})
+        historical_records = combine_payload_pages(historical_payloads, ["results"])
+        current_params = {"day": "today"}
+        current_payload = self.client.fetch_json("/v1/racecards", params=current_params)
 
         historical_df, historical_issues = flatten_racing_api_records(historical_records, current_mode=False)
         current_df, current_issues = flatten_racing_api_payload(current_payload, current_mode=True)
-        return ProviderResult(historical_df, current_df, historical_issues + current_issues)
+        return ProviderResult(
+            historical_df,
+            current_df,
+            historical_issues + current_issues,
+            raw_payloads=[
+                *[
+                    RawProviderPayload("results", "/v1/results", payload, {**historical_params, "page": index + 1})
+                    for index, payload in enumerate(historical_payloads)
+                ],
+                RawProviderPayload("racecards", "/v1/racecards", current_payload, current_params),
+            ],
+        )
 
 
 def get_provider_adapter(config: APIConfig) -> ProviderAdapter:
@@ -421,17 +498,50 @@ def expand_track_payload(payload: dict | list) -> list[tuple[str | None, dict]]:
     return rows
 
 
+def split_ourhub_race_label(label: str, course_names: Iterable[str]) -> tuple[str | None, str | None, str | None]:
+    normalized_label = label.strip()
+    for course_name in sorted((name for name in course_names if name), key=len, reverse=True):
+        if normalized_label.lower().startswith(f"{course_name.lower()} "):
+            remainder = normalized_label[len(course_name) :].strip()
+            match = re.match(r"^(?P<time>\d{1,2}:\d{2})\s*(?P<name>.*)$", remainder)
+            if match:
+                return course_name, match.group("time"), match.group("name").strip() or None
+            return course_name, None, remainder or None
+
+    match = re.match(r"^(?P<course>.+?)\s+(?P<time>\d{1,2}:\d{2})\s*(?P<name>.*)$", normalized_label)
+    if match:
+        return match.group("course").strip(), match.group("time"), match.group("name").strip() or None
+    return normalized_label or None, None, None
+
+
+def expand_ourhub_runner_payload(payload: dict | list, course_names: Iterable[str]) -> list[tuple[str | None, dict]]:
+    if not isinstance(payload, dict):
+        return expand_track_payload(payload)
+
+    rows = []
+    for race_label, runners in payload.items():
+        track, race_time, race_name = split_ourhub_race_label(str(race_label), course_names)
+        race = {
+            "race_time": race_time,
+            "race_name": race_name,
+            "runners": runners if isinstance(runners, list) else [],
+        }
+        rows.append((track, race))
+    return rows
+
+
 def flatten_ourhub_payload(
     course_payload: dict | list,
     runner_payload: dict | list,
     race_date: str,
 ) -> tuple[pd.DataFrame, list[ValidationIssue]]:
     course_lookup = {}
+    course_names = list(course_payload.keys()) if isinstance(course_payload, dict) else []
     for track, race in expand_track_payload(course_payload):
         course_lookup[(track, first_value(race, "race_time", "off_time", "time"))] = race
 
     rows = []
-    for track, race in expand_track_payload(runner_payload):
+    for track, race in expand_ourhub_runner_payload(runner_payload, course_names):
         race_time = first_value(race, "race_time", "off_time", "time")
         course = course_lookup.get((track, race_time), {})
         runners = first_value(race, "runners", "horses")

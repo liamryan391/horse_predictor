@@ -19,10 +19,19 @@ Dependabot is already configured for Python, frontend npm, and GitHub Actions up
 `.github/workflows/staging-acceptance.yml` is a manual workflow. It expects:
 
 - a staging API URL as `api_base_url`
-- `API_AUTH_TOKEN` stored as a GitHub Actions secret
+- an admin-capable account token stored as `ACCOUNT_AUTH_TOKEN` or legacy `API_AUTH_TOKEN`
 - a staging API that already has migrated schema, approved model artifact, prediction-run evidence, monitoring, and admin governance endpoints
 
 The workflow runs `scripts/production-readiness-check.py` with release-grade gates, then writes `release-records/staging-release-record.json` and uploads it as an artifact.
+
+Before running the workflow against a new environment, run:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\staging-env-check.py --env-file .env.staging --require-release-token --require-policy-links
+.\.venv\Scripts\python.exe scripts\managed-db-rehearsal.py --mode roundtrip --source-url $env:DATABASE_URL --restore-url $env:RESTORE_DATABASE_URL --backup-path backups\staging-rehearsal.sql
+```
+
+The second command is a dry-run unless `--execute` is added.
 
 ## Local Release Command
 
@@ -33,7 +42,7 @@ PowerShell:
 ```powershell
 $env:DATABASE_URL="mysql+pymysql://..."
 $env:API_BASE_URL="https://horse-predictor-api-staging.example.com"
-$env:API_AUTH_TOKEN="your-admin-token"
+$env:ACCOUNT_AUTH_TOKEN="your-admin-account-token"
 $env:RUN_ACCEPTANCE_CHECKS="true"
 $env:RELEASE_RECORD_PATH="release-records/staging-release-record.json"
 .\scripts\staging-release.ps1
@@ -44,7 +53,7 @@ Bash:
 ```bash
 DATABASE_URL="mysql+pymysql://..." \
 API_BASE_URL="https://horse-predictor-api-staging.example.com" \
-API_AUTH_TOKEN="your-admin-token" \
+ACCOUNT_AUTH_TOKEN="your-admin-account-token" \
 RUN_ACCEPTANCE_CHECKS=true \
 RELEASE_RECORD_PATH="release-records/staging-release-record.json" \
 ./scripts/staging-release.sh
@@ -74,7 +83,7 @@ Optional environment switches:
 Run it directly with:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\release-record.py --base-url http://127.0.0.1:8000 --admin-token $env:API_AUTH_TOKEN --output release-records/local-release-record.json
+.\.venv\Scripts\python.exe scripts\release-record.py --base-url http://127.0.0.1:8000 --admin-token $env:ACCOUNT_AUTH_TOKEN --output release-records/local-release-record.json
 ```
 
 Release records are ignored by git and should be stored as CI artifacts or release evidence.
@@ -86,7 +95,7 @@ Release records are ignored by git and should be stored as CI artifacts or relea
 Run it after backend and frontend previews are live:
 
 ```powershell
-$env:API_AUTH_TOKEN="your-admin-token"
+$env:ACCOUNT_AUTH_TOKEN="your-admin-account-token"
 .\.venv\Scripts\python.exe scripts\visual-smoke-check.py --base-url http://127.0.0.1:5173 --require-admin --screenshot --verbose
 ```
 

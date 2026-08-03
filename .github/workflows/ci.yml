@@ -47,10 +47,24 @@ jobs:
           monitoring.py
           observability.py
           prediction_model.py
+          local_ai.py
+          local_data_broker.py
+          scripts/account-smoke-check.py
+          scripts/broker-smoke-check.py
+          scripts/local-ai-smoke-check.py
+          scripts/managed-db-rehearsal.py
+          scripts/normalized-backfill-check.py
           scripts/production-readiness-check.py
           scripts/provider-depth-check.py
+          scripts/provider-smoke-check.py
           scripts/release-record.py
+          scripts/staging-env-check.py
           scripts/visual-smoke-check.py
+
+      - name: Validate deployment config helpers
+        run: |
+          python scripts/staging-env-check.py --env-file .env.staging.example --allow-placeholders --require-release-token
+          python scripts/managed-db-rehearsal.py --mode roundtrip --source-url mysql+pymysql://horse_user:secret@db.example.net:3306/horse_predictor --restore-url mysql+pymysql://horse_restore:secret@restore.example.net:3306/horse_predictor_restore --backup-path backups/ci-dry-run.sql
 
       - name: Run Alembic migrations
         run: python -m alembic upgrade head

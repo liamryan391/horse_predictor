@@ -48,6 +48,7 @@ class Settings:
     api_auth_token: str = ""
     journal_auth_token: str = ""
     journal_account_key: str = "journal-user"
+    account_auth_enabled: bool = True
     api_rate_limit_per_minute: int = 240
     data_freshness_max_age_hours: float = 24.0
     log_format: str = "plain"
@@ -64,6 +65,13 @@ class Settings:
     data_license_reference: str = ""
     model_artifact_dir: Path = BASE_DIR / "model_artifacts"
     require_approved_model_artifact: bool = False
+    broker_raw_cache_dir: Path = BASE_DIR / "broker_payloads"
+    ai_provider: str = "disabled"
+    ai_base_url: str = "http://127.0.0.1:11434/v1"
+    ai_model: str = ""
+    ai_timeout_seconds: float = 20.0
+    ai_json_schema_required: bool = True
+    ai_api_key: str = ""
 
     @property
     def is_deployed_environment(self) -> bool:
@@ -87,15 +95,15 @@ class Settings:
             insecure_origins = [origin for origin in self.backend_cors_origins if origin.startswith("http://")]
             if insecure_origins:
                 errors.append("BACKEND_CORS_ORIGINS must use HTTPS in staging or production.")
-        if self.is_deployed_environment and not self.api_auth_token:
-            errors.append("API_AUTH_TOKEN must be set before enabling administrative API routes.")
+        if self.is_deployed_environment and not self.account_auth_enabled and not self.api_auth_token:
+            errors.append("API_AUTH_TOKEN must be set before enabling administrative API routes without account auth.")
         if self.is_deployed_environment and self.api_auth_token:
             weak_tokens = {"replace-with-a-long-random-token", "replace_me", "changeme", "change-me"}
             token_value = self.api_auth_token.lower()
             if len(self.api_auth_token) < 32 or token_value in weak_tokens or "replace" in token_value:
                 errors.append("API_AUTH_TOKEN must be a non-placeholder secret with at least 32 characters.")
-        if self.is_deployed_environment and not self.journal_auth_token:
-            errors.append("JOURNAL_AUTH_TOKEN must be set before enabling server-side journal routes.")
+        if self.is_deployed_environment and not self.account_auth_enabled and not self.journal_auth_token:
+            errors.append("JOURNAL_AUTH_TOKEN must be set before enabling server-side journal routes without account auth.")
         if self.is_deployed_environment and self.journal_auth_token:
             weak_tokens = {"replace-with-a-long-random-token", "replace_me", "changeme", "change-me"}
             token_value = self.journal_auth_token.lower()
@@ -113,6 +121,20 @@ class Settings:
             errors.append("MONITORING_MAX_ERROR_RATE must be between 0 and 1.")
         if self.require_approved_model_artifact and not self.model_artifact_dir:
             errors.append("MODEL_ARTIFACT_DIR must be configured when approved model artifacts are required.")
+        if not str(self.broker_raw_cache_dir).strip():
+            errors.append("BROKER_RAW_CACHE_DIR must not be empty.")
+        ai_enabled = self.ai_provider.strip().lower() not in {"", "disabled", "off", "none"}
+        if ai_enabled:
+            if not self.ai_base_url.strip():
+                errors.append("AI_BASE_URL must be set when AI_PROVIDER is enabled.")
+            if not self.ai_model.strip():
+                errors.append("AI_MODEL must be set when AI_PROVIDER is enabled.")
+            if self.is_deployed_environment and self.ai_base_url.startswith("http://"):
+                loopback_prefixes = ("http://127.0.0.1", "http://localhost")
+                if not self.ai_base_url.startswith(loopback_prefixes):
+                    errors.append("AI_BASE_URL must use HTTPS outside loopback in staging or production.")
+        if self.ai_timeout_seconds <= 0:
+            errors.append("AI_TIMEOUT_SECONDS must be greater than 0.")
 
         if errors:
             raise RuntimeError("Invalid Horse Predictor configuration: " + " ".join(errors))
@@ -164,6 +186,7 @@ def get_settings() -> Settings:
         api_auth_token=os.getenv("API_AUTH_TOKEN", ""),
         journal_auth_token=os.getenv("JOURNAL_AUTH_TOKEN", ""),
         journal_account_key=os.getenv("JOURNAL_ACCOUNT_KEY", "journal-user"),
+        account_auth_enabled=_bool_env(os.getenv("ACCOUNT_AUTH_ENABLED"), True),
         api_rate_limit_per_minute=int(os.getenv("API_RATE_LIMIT_PER_MINUTE", "240")),
         data_freshness_max_age_hours=float(os.getenv("DATA_FRESHNESS_MAX_AGE_HOURS", "24")),
         log_format=os.getenv("LOG_FORMAT", "json" if deployed else "plain"),
@@ -180,4 +203,11 @@ def get_settings() -> Settings:
         data_license_reference=os.getenv("DATA_LICENSE_REFERENCE", ""),
         model_artifact_dir=Path(os.getenv("MODEL_ARTIFACT_DIR", BASE_DIR / "model_artifacts")),
         require_approved_model_artifact=_bool_env(os.getenv("REQUIRE_APPROVED_MODEL_ARTIFACT"), deployed),
+        broker_raw_cache_dir=Path(os.getenv("BROKER_RAW_CACHE_DIR", BASE_DIR / "broker_payloads")),
+        ai_provider=os.getenv("AI_PROVIDER", "disabled").lower(),
+        ai_base_url=os.getenv("AI_BASE_URL", "http://127.0.0.1:11434/v1"),
+        ai_model=os.getenv("AI_MODEL", ""),
+        ai_timeout_seconds=float(os.getenv("AI_TIMEOUT_SECONDS", "20")),
+        ai_json_schema_required=_bool_env(os.getenv("AI_JSON_SCHEMA_REQUIRED"), True),
+        ai_api_key=os.getenv("AI_API_KEY", ""),
     )

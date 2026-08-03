@@ -31,7 +31,7 @@ Use the administrative endpoint after a fresh data import or before release revi
 ```powershell
 Invoke-WebRequest `
   -Method POST `
-  -Headers @{ Authorization = "Bearer $env:API_AUTH_TOKEN" } `
+  -Headers @{ Authorization = "Bearer $env:ACCOUNT_AUTH_TOKEN"; "X-Account-Actor" = "Liam" } `
   -UseBasicParsing `
   "http://127.0.0.1:8000/api/v1/admin/model/evaluation"
 ```
@@ -54,7 +54,7 @@ Approve a candidate only after reviewing the metrics against the market baseline
 ```powershell
 Invoke-WebRequest `
   -Method POST `
-  -Headers @{ Authorization = "Bearer $env:API_AUTH_TOKEN" } `
+  -Headers @{ Authorization = "Bearer $env:ACCOUNT_AUTH_TOKEN"; "X-Account-Actor" = "Liam" } `
   -UseBasicParsing `
   "http://127.0.0.1:8000/api/v1/admin/model/1/approve"
 ```
@@ -68,7 +68,7 @@ Use supersede when a candidate or previously approved model should be removed fr
 ```powershell
 Invoke-WebRequest `
   -Method POST `
-  -Headers @{ Authorization = "Bearer $env:API_AUTH_TOKEN" } `
+  -Headers @{ Authorization = "Bearer $env:ACCOUNT_AUTH_TOKEN"; "X-Account-Actor" = "Liam" } `
   -UseBasicParsing `
   "http://127.0.0.1:8000/api/v1/admin/model/1/supersede"
 ```

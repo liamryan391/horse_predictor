@@ -46,6 +46,7 @@ def request_json(
     if token:
         headers["Authorization"] = f"Bearer {token}"
     if actor:
+        headers["X-Account-Actor"] = actor
         headers["X-Admin-Actor"] = actor
         headers["X-Journal-Actor"] = actor
     request = urllib.request.Request(url, headers=headers)
@@ -213,7 +214,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--require-monitoring", action="store_true", help="Require the monitoring endpoint to expose metrics and drift checks.")
     parser.add_argument("--require-no-critical-alerts", action="store_true", help="Fail when monitoring reports critical or blocked alerts.")
     parser.add_argument("--require-admin-governance", action="store_true", help="Require authenticated admin session, governance, and audit endpoints.")
-    parser.add_argument("--admin-token", default=os.getenv("API_AUTH_TOKEN", ""), help="Bearer token for admin governance checks.")
+    parser.add_argument(
+        "--admin-token",
+        default=os.getenv("ACCOUNT_AUTH_TOKEN") or os.getenv("API_AUTH_TOKEN", ""),
+        help="Admin-capable bearer token for governance checks.",
+    )
     parser.add_argument("--admin-actor", default=os.getenv("ADMIN_ACTOR", "readiness-check"), help="Actor label for admin governance checks.")
     parser.add_argument("--require-hsts", action="store_true", help="Require Strict-Transport-Security for HTTPS deployments.")
     return parser.parse_args(argv)

@@ -6,8 +6,11 @@ import unittest
 from provider_adapters import (
     APIConfig,
     fetch_paginated,
+    flatten_ourhub_payload,
     flatten_racing_api_payload,
+    has_http_base_url,
     normalize_provider_records,
+    resolve_provider_base_url,
     summarize_validation_issues,
 )
 
@@ -46,6 +49,40 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual("good", frame.loc[0, "going_category"])
         self.assertFalse([issue for issue in issues if issue.severity == "error"])
 
+    def test_ourhub_fixture_matches_runner_label_to_course_metadata(self) -> None:
+        course_payload = {
+            "Market Rasen": [
+                {
+                    "race_time": "14:10",
+                    "race_name": "Summer Handicap",
+                    "distance": "2m1f",
+                    "going": "Good",
+                    "race_class": "Class 4",
+                }
+            ]
+        }
+        runner_payload = {
+            "Market Rasen 14:10 Summer Handicap": [
+                {
+                    "horse_name": "North Ridge",
+                    "jockey_name": "A. Rider",
+                    "trainer_name": "T. Trainer",
+                    "weight": "11-2",
+                    "number": "3",
+                }
+            ]
+        }
+
+        frame, issues = flatten_ourhub_payload(course_payload, runner_payload, "2026-08-03")
+
+        self.assertEqual(1, len(frame))
+        self.assertEqual("Market Rasen", frame.loc[0, "track"])
+        self.assertEqual(3740.0, frame.loc[0, "distance"])
+        self.assertEqual("Good", frame.loc[0, "surface"])
+        self.assertEqual("North Ridge", frame.loc[0, "horse"])
+        self.assertFalse([issue for issue in issues if issue.severity == "error"])
+        self.assertFalse([issue for issue in issues if issue.field in {"distance", "surface"}])
+
     def test_provider_validation_summarizes_missing_required_fields(self) -> None:
         frame, issues = normalize_provider_records(
             [{"race_date": "", "track": "York", "horse": "", "finishing_position": None}],
@@ -63,6 +100,27 @@ class ProviderAdapterTests(unittest.TestCase):
 
         self.assertEqual([1, 2], [record["page"] for record in records])
         self.assertEqual([1, 2], client.pages_requested)
+
+    def test_base_url_validation_rejects_provider_names(self) -> None:
+        self.assertTrue(has_http_base_url("https://api.example.com"))
+        self.assertFalse(has_http_base_url("ourhub"))
+        self.assertFalse(has_http_base_url(""))
+
+    def test_built_in_providers_use_official_base_url_by_default(self) -> None:
+        self.assertEqual(
+            "https://api.ourhub.site/api",
+            resolve_provider_base_url("ourhub", "https://racing.ourhub.site/"),
+        )
+        self.assertEqual(
+            "https://api.theracingapi.com",
+            resolve_provider_base_url("theracingapi", "https://racing.ourhub.site/"),
+        )
+
+    def test_built_in_provider_base_url_can_be_explicitly_overridden(self) -> None:
+        self.assertEqual(
+            "https://proxy.example.com",
+            resolve_provider_base_url("ourhub", "https://proxy.example.com", allow_override=True),
+        )
 
 
 @dataclass

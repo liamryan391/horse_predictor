@@ -9,7 +9,7 @@ Horse Predictor is built as an operator workspace, not an automated betting bot.
 - Imports sample data or licensed provider data into SQL.
 - Serves versioned FastAPI endpoints for meetings, race cards, predictions, data quality, monitoring, model registry, prediction runs, bet journal, and admin governance.
 - Displays a React racing workspace with rankings, race centre, race cards, model evaluation, monitoring, provider freshness, bet journal, responsible-use copy, and admin controls.
-- Stores model artifacts, approval metadata, prediction-run evidence, admin audit events, and server-side journal rows.
+- Stores model artifacts, approval metadata, prediction-run evidence, admin audit events, named operator accounts, and account-scoped server-side journal rows.
 - Runs repeatable CI, release-record, readiness, and visual smoke gates.
 
 ## Quick start on Windows
@@ -95,6 +95,12 @@ Seed the local database:
 .\.venv\Scripts\python.exe data_pipeline.py --provider sample
 ```
 
+Optional named admin account for realistic local auth:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\account-smoke-check.py --database-url horse_racing.db --account-key liam --display-name "Liam" --roles admin,journal --token "replace-with-a-long-local-token" --privacy-acknowledged
+```
+
 Model artifacts are written to `model_artifacts/` by default when an admin records a model evaluation snapshot. The directory is ignored by git.
 
 Install frontend dependencies:
@@ -142,6 +148,8 @@ $env:HORSE_API_KEY="your_api_key"
 .\.venv\Scripts\python.exe data_pipeline.py --provider ourhub --days-ahead 0
 ```
 
+The built-in adapter uses the official OurHub base URL, even if `HORSE_API_BASE_URL` is set for another provider.
+
 The Racing API:
 
 ```powershell
@@ -163,6 +171,29 @@ Remote providers support retry, timeout, rate-limit, and pagination controls:
 ```
 
 Live provider calls require valid provider credentials. Without credentials, the app records clear ingestion failures and keeps the sample/demo path usable. See [docs/LIVE_TESTING.md](docs/LIVE_TESTING.md) for the complete live-data checklist.
+
+Before importing live data, run the redacted provider smoke check:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\provider-smoke-check.py --provider ourhub --days-ahead 0 --timeout-seconds 20 --retry-attempts 1
+```
+
+Raw provider payload caching is available for local replay and mapping review:
+
+```powershell
+.\.venv\Scripts\python.exe data_pipeline.py --provider ourhub --days-ahead 0 --no-csv --disable-lock --cache-raw-payloads
+.\.venv\Scripts\python.exe scripts\broker-smoke-check.py --cache-dir .codex_tmp\broker-smoke
+```
+
+Provider imports now also sync into normalized race, runner, result, and odds tables. Check that path with:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\normalized-backfill-check.py --database-url horse_racing.db
+```
+
+Authenticated testing on August 3, 2026 confirmed that OurHub can import live race cards and that the current The Racing API account can access courses but needs plan access for racecards/results. See [docs/LIVE_PROVIDER_CHECK_2026-08-03.md](docs/LIVE_PROVIDER_CHECK_2026-08-03.md).
+
+Roadmap03 now includes a local data-broker and local-AI path so the project can keep moving without committing early to expensive provider tiers. See [docs/LOCAL_DATA_BROKER.md](docs/LOCAL_DATA_BROKER.md) and [docs/LOCAL_AI_STRATEGY.md](docs/LOCAL_AI_STRATEGY.md).
 
 ## Required data fields
 
@@ -197,7 +228,7 @@ Phase 13 also derives model enrichment fields from the above data: course countr
 
 ## Notes
 
-This is decision-support software, not guaranteed betting advice. Model quality depends on the amount, accuracy, and freshness of historical results. For production, replace shared bearer tokens with full user authentication, managed hosting, larger provider history, and governed model promotion.
+This is decision-support software, not guaranteed betting advice. Model quality depends on the amount, accuracy, and freshness of historical results. For production, use named account tokens or a full external auth provider, managed hosting, larger provider history, and governed model promotion.
 
 See [ROADMAP.md](ROADMAP.md) for the planned path from prototype to production-ready platform.
 See [ROADMAP02.md](ROADMAP02.md) for the completed Phase 12-18 build plan, [ROADMAP03.md](ROADMAP03.md) for the next roadmap, and [FUTURE_ROADMAP.md](FUTURE_ROADMAP.md) for longer-term development ideas.
@@ -210,10 +241,12 @@ See [docs/MODELING.md](docs/MODELING.md) for leakage checks, holdout evaluation,
 See [docs/API.md](docs/API.md) for versioned backend endpoints, pagination, request IDs, and API security notes.
 See [docs/FRONTEND.md](docs/FRONTEND.md) for the professional workspace, bet journal, theme, and frontend UX notes.
 See [docs/MONITORING.md](docs/MONITORING.md) for drift reports, operator alerts, API metrics, and OpenTelemetry configuration.
-See [docs/ADMIN_GOVERNANCE.md](docs/ADMIN_GOVERNANCE.md) for the admin console, bearer-token roles, audit log, and governance checks.
+See [docs/ADMIN_GOVERNANCE.md](docs/ADMIN_GOVERNANCE.md) for the admin console, account roles, audit log, and governance checks.
 See [docs/CI_RELEASE.md](docs/CI_RELEASE.md) for GitHub Actions CI, staging acceptance, release records, and visual smoke gates.
 See [docs/TESTING.md](docs/TESTING.md) for automated backend, data/model, frontend utility, and browser smoke checks.
 See [docs/LIVE_TESTING.md](docs/LIVE_TESTING.md) for live provider setup, race-card import checks, DB verification, and local release rehearsal.
+See [docs/LOCAL_DATA_BROKER.md](docs/LOCAL_DATA_BROKER.md) for raw provider payload cache, replay, and local AI smoke checks.
+See [docs/MANAGED_DATA.md](docs/MANAGED_DATA.md) for staging/production env validation, managed DB backup/restore rehearsal, and rollback boundaries.
 See [docs/CLOUD_STAGING.md](docs/CLOUD_STAGING.md) for staging deployment, migration, ingestion worker, and observability notes.
 See [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) for security, safeguards, launch acceptance, and rollback gates.
 See [docs/MODEL_OPERATIONS.md](docs/MODEL_OPERATIONS.md) for persisted model artifacts, approval, and registry workflow.
