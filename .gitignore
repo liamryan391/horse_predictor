@@ -1,0 +1,14 @@
+.venv/
+.codex_tmp/
+.phase13-smoke/
+__pycache__/
+*.py[cod]
+*.db
+model_artifacts/
+release-records/
+.streamlit/
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+.env

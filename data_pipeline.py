@@ -1,175 +1,159 @@
+from __future__ import annotations
+
 import argparse
 import os
-import sqlite3
-from dataclasses import dataclass
-from datetime import datetime
-from typing import Iterable, List, Optional
+import platform
+import time
+from datetime import date, timedelta
 
-import pandas as pd
-import requests
-
-HISTORICAL_COLUMNS = [
-    "race_date",
-    "track",
-    "distance",
-    "surface",
-    "horse",
-    "jockey",
-    "owner",
-    "trainer",
-    "odds",
-    "finishing_position",
-    "horse_age",
-    "horse_weight",
-    "draw",
-    "speed_rating",
-    "class_rating",
-    "days_since_last_run",
-    "past_bets_count",
-    "past_bets_profit",
-    "weather",
-]
-
-CURRENT_COLUMNS = HISTORICAL_COLUMNS.copy()
+from observability import configure_logging
+from provider_adapters import APIConfig, FetchContext, get_provider_adapter, summarize_validation_issues
+from racing_storage import TABLES, record_ingestion_run, release_job_lock, seed_database_from_samples, try_acquire_job_lock, write_races
+from settings import get_settings
 
 
-@dataclass
-class APIConfig:
-    base_url: str
-    api_key: str
-
-
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    settings = get_settings()
     parser = argparse.ArgumentParser(
-        description="Fetch horse racing data from API, store in SQL, and generate sample CSV files."
+        description="Fetch horse racing data, store it in SQL, and optionally export CSV snapshots."
     )
-    parser.add_argument("--base-url", default=os.getenv("HORSE_API_BASE_URL", ""))
-    parser.add_argument("--api-key", default=os.getenv("HORSE_API_KEY", ""))
-    parser.add_argument("--db-path", default="horse_racing.db")
-    parser.add_argument("--historical-out", default="sample_historical_data.csv")
-    parser.add_argument("--current-out", default="sample_current_races.csv")
+    parser.add_argument(
+        "--provider",
+        choices=["sample", "generic", "theracingapi", "ourhub"],
+        default=settings.horse_api_provider,
+        help="sample keeps the app usable without credentials; generic expects JSON matching the app schema.",
+    )
+    parser.add_argument("--base-url", default=settings.horse_api_base_url)
+    parser.add_argument("--api-key", default=settings.horse_api_key)
+    parser.add_argument("--username", default=settings.racing_api_username)
+    parser.add_argument("--password", default=settings.racing_api_password)
+    parser.add_argument(
+        "--database-url",
+        default=settings.database_url,
+        help="SQLAlchemy database URL. Use mysql+pymysql://user:pass@host:3306/horse_predictor for MySQL.",
+    )
+    parser.add_argument("--historical-out", default=str(settings.sample_historical_csv))
+    parser.add_argument("--current-out", default=str(settings.sample_current_csv))
     parser.add_argument("--days-ahead", type=int, default=7)
-    return parser.parse_args()
+    parser.add_argument("--history-start", default=(date.today() - timedelta(days=365)).isoformat())
+    parser.add_argument("--history-end", default=date.today().isoformat())
+    parser.add_argument("--timeout-seconds", type=float, default=settings.horse_api_timeout_seconds)
+    parser.add_argument("--retry-attempts", type=int, default=settings.horse_api_retry_attempts)
+    parser.add_argument("--retry-backoff-seconds", type=float, default=settings.horse_api_retry_backoff_seconds)
+    parser.add_argument("--min-request-interval-seconds", type=float, default=settings.horse_api_min_request_interval_seconds)
+    parser.add_argument("--max-pages", type=int, default=settings.horse_api_max_pages)
+    parser.add_argument("--no-csv", action="store_true", help="Only update SQL; do not write CSV snapshots.")
+    parser.add_argument("--repeat-hourly", action="store_true", help="Keep the ingestion worker running hourly.")
+    parser.add_argument("--disable-lock", action="store_true", help="Run without acquiring the ingestion worker lock.")
+    parser.add_argument("--lock-name", default="ingestion-worker")
+    parser.add_argument("--lock-ttl-seconds", type=int, default=55 * 60)
+    return parser.parse_args(argv)
 
 
-def fetch_json(config: APIConfig, endpoint: str, params: Optional[dict] = None) -> List[dict]:
-    url = f"{config.base_url.rstrip('/')}/{endpoint.lstrip('/')}"
-    headers = {"Authorization": f"Bearer {config.api_key}"}
-    response = requests.get(url, headers=headers, params=params, timeout=30)
-    response.raise_for_status()
-    payload = response.json()
-
-    if isinstance(payload, dict):
-        if "results" in payload and isinstance(payload["results"], list):
-            return payload["results"]
-        if "data" in payload and isinstance(payload["data"], list):
-            return payload["data"]
-    if isinstance(payload, list):
-        return payload
-
-    raise ValueError(f"Unsupported payload structure from endpoint '{endpoint}'")
+def export_snapshots(historical_df: pd.DataFrame, current_df: pd.DataFrame, args: argparse.Namespace) -> None:
+    if args.no_csv:
+        return
+    if not historical_df.empty:
+        historical_df.to_csv(args.historical_out, index=False)
+    if not current_df.empty:
+        current_df.to_csv(args.current_out, index=False)
 
 
-def normalize_records(records: Iterable[dict], column_order: List[str], current_mode: bool = False) -> pd.DataFrame:
-    df = pd.DataFrame(records)
-    for col in column_order:
-        if col not in df.columns:
-            df[col] = None
+def run_once(args: argparse.Namespace) -> dict:
+    if args.provider == "sample":
+        counts = seed_database_from_samples(args.database_url, args.historical_out, args.current_out)
+        return {"historical": counts["historical"], "current": counts["current"], "source": "sample"}
 
-    if current_mode:
-        df["finishing_position"] = df["finishing_position"].fillna(0)
-
-    return df[column_order]
-
-
-def init_db(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS races_historical (
-            race_date TEXT,
-            track TEXT,
-            distance REAL,
-            surface TEXT,
-            horse TEXT,
-            jockey TEXT,
-            owner TEXT,
-            trainer TEXT,
-            odds REAL,
-            finishing_position INTEGER,
-            horse_age REAL,
-            horse_weight REAL,
-            draw REAL,
-            speed_rating REAL,
-            class_rating REAL,
-            days_since_last_run REAL,
-            past_bets_count REAL,
-            past_bets_profit REAL,
-            weather TEXT,
-            ingested_at TEXT
-        )
-        """
+    config = APIConfig(
+        provider=args.provider,
+        base_url=args.base_url,
+        api_key=args.api_key,
+        username=args.username,
+        password=args.password,
+        timeout_seconds=args.timeout_seconds,
+        retry_attempts=args.retry_attempts,
+        retry_backoff_seconds=args.retry_backoff_seconds,
+        min_request_interval_seconds=args.min_request_interval_seconds,
+        max_pages=args.max_pages,
     )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS races_current (
-            race_date TEXT,
-            track TEXT,
-            distance REAL,
-            surface TEXT,
-            horse TEXT,
-            jockey TEXT,
-            owner TEXT,
-            trainer TEXT,
-            odds REAL,
-            finishing_position INTEGER,
-            horse_age REAL,
-            horse_weight REAL,
-            draw REAL,
-            speed_rating REAL,
-            class_rating REAL,
-            days_since_last_run REAL,
-            past_bets_count REAL,
-            past_bets_profit REAL,
-            weather TEXT,
-            ingested_at TEXT
+
+    context = FetchContext(args.days_ahead, args.history_start, args.history_end)
+    try:
+        provider_result = get_provider_adapter(config).fetch(context)
+    except Exception as exc:
+        record_ingestion_run(args.database_url, args.provider, "provider_fetch", "failure", 0, str(exc))
+        raise
+
+    historical_df = provider_result.historical
+    current_df = provider_result.current
+    source = args.provider
+    validation_message = summarize_validation_issues(provider_result.validation_issues)
+
+    export_snapshots(historical_df, current_df, args)
+    historical_count = 0
+    if not historical_df.empty:
+        historical_count = write_races(
+            args.database_url,
+            TABLES["historical"],
+            historical_df,
+            source=source,
+            message=validation_message,
         )
-        """
+    current_count = 0
+    if not current_df.empty:
+        current_count = write_races(
+            args.database_url,
+            TABLES["current"],
+            current_df,
+            source=source,
+            message=validation_message,
+        )
+    return {
+        "historical": historical_count,
+        "current": current_count,
+        "source": source,
+        "validation_issues": len(provider_result.validation_issues),
+    }
+
+
+def run_once_with_lock(args: argparse.Namespace) -> dict:
+    if args.disable_lock:
+        return run_once(args)
+
+    owner = f"{platform.node() or 'host'}:{os.getpid()}"
+    acquired = try_acquire_job_lock(
+        args.database_url,
+        args.lock_name,
+        owner,
+        args.lock_ttl_seconds,
+        message=f"provider={args.provider}",
     )
-    conn.commit()
+    if not acquired:
+        return {"historical": 0, "current": 0, "source": args.provider, "validation_issues": 0, "skipped": True}
 
-
-def write_table(conn: sqlite3.Connection, table: str, df: pd.DataFrame) -> None:
-    write_df = df.copy()
-    write_df["ingested_at"] = datetime.utcnow().isoformat()
-    write_df.to_sql(table, conn, if_exists="replace", index=False)
+    try:
+        return run_once(args)
+    finally:
+        release_job_lock(args.database_url, args.lock_name, owner)
 
 
 def main() -> None:
     args = parse_args()
-    if not args.base_url or not args.api_key:
-        raise SystemExit(
-            "Missing API config. Set HORSE_API_BASE_URL and HORSE_API_KEY or pass --base-url/--api-key."
-        )
-
-    config = APIConfig(base_url=args.base_url, api_key=args.api_key)
-
-    historical_records = fetch_json(config, "/historical-races")
-    current_records = fetch_json(config, "/current-races", params={"days_ahead": args.days_ahead})
-
-    historical_df = normalize_records(historical_records, HISTORICAL_COLUMNS)
-    current_df = normalize_records(current_records, CURRENT_COLUMNS, current_mode=True)
-
-    historical_df.to_csv(args.historical_out, index=False)
-    current_df.to_csv(args.current_out, index=False)
-
-    with sqlite3.connect(args.db_path) as conn:
-        init_db(conn)
-        write_table(conn, "races_historical", historical_df)
-        write_table(conn, "races_current", current_df)
-
-    print(f"Saved {len(historical_df)} historical rows to {args.historical_out}")
-    print(f"Saved {len(current_df)} current rows to {args.current_out}")
-    print(f"Data also loaded into SQLite DB: {args.db_path}")
+    settings = get_settings()
+    configure_logging(settings.app_env, settings.log_format)
+    while True:
+        result = run_once_with_lock(args)
+        if result.get("skipped"):
+            print(f"Skipped {args.provider} ingestion because lock {args.lock_name} is already active.")
+        else:
+            print(
+                f"Updated {args.database_url}: {result['historical']} historical rows, "
+                f"{result['current']} current rows from {result['source']} "
+                f"({result.get('validation_issues', 0)} validation issues)."
+            )
+        if not args.repeat_hourly:
+            break
+        time.sleep(60 * 60)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,111 @@
+name: horse_predictor_staging
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command: >
+      sh -c "python -m alembic upgrade head
+      && uvicorn api:app --host 0.0.0.0 --port 8000"
+    environment:
+      APP_ENV: staging
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:?Set BACKEND_CORS_ORIGINS}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:?Set ALLOWED_HOSTS}
+      API_AUTH_TOKEN: ${API_AUTH_TOKEN:?Set API_AUTH_TOKEN}
+      JOURNAL_AUTH_TOKEN: ${JOURNAL_AUTH_TOKEN:?Set JOURNAL_AUTH_TOKEN}
+      JOURNAL_ACCOUNT_KEY: ${JOURNAL_ACCOUNT_KEY:?Set JOURNAL_ACCOUNT_KEY}
+      API_RATE_LIMIT_PER_MINUTE: ${API_RATE_LIMIT_PER_MINUTE:-240}
+      MAX_REQUEST_BODY_BYTES: ${MAX_REQUEST_BODY_BYTES:-1048576}
+      DATA_FRESHNESS_MAX_AGE_HOURS: ${DATA_FRESHNESS_MAX_AGE_HOURS:-24}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      MODEL_ARTIFACT_DIR: ${MODEL_ARTIFACT_DIR:-/app/model_artifacts}
+      REQUIRE_APPROVED_MODEL_ARTIFACT: ${REQUIRE_APPROVED_MODEL_ARTIFACT:-true}
+      MONITORING_DRIFT_WARNING_THRESHOLD: ${MONITORING_DRIFT_WARNING_THRESHOLD:-0.35}
+      MONITORING_DRIFT_CRITICAL_THRESHOLD: ${MONITORING_DRIFT_CRITICAL_THRESHOLD:-0.75}
+      MONITORING_SLOW_REQUEST_MS: ${MONITORING_SLOW_REQUEST_MS:-1000}
+      MONITORING_MAX_ERROR_RATE: ${MONITORING_MAX_ERROR_RATE:-0.05}
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-horse-predictor-api}
+      RESPONSIBLE_GAMBLING_URL: ${RESPONSIBLE_GAMBLING_URL:-}
+      PRIVACY_POLICY_URL: ${PRIVACY_POLICY_URL:-}
+      TERMS_OF_USE_URL: ${TERMS_OF_USE_URL:-}
+      DATA_LICENSE_REFERENCE: ${DATA_LICENSE_REFERENCE:-}
+      HORSE_API_PROVIDER: ${HORSE_API_PROVIDER:-sample}
+      HORSE_API_BASE_URL: ${HORSE_API_BASE_URL:-}
+      HORSE_API_KEY: ${HORSE_API_KEY:-}
+      RACING_API_USERNAME: ${RACING_API_USERNAME:-}
+      RACING_API_PASSWORD: ${RACING_API_PASSWORD:-}
+    ports:
+      - "8000:8000"
+    volumes:
+      - model-artifacts:/app/model_artifacts
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=5)"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  ingestion-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command: >
+      sh -c "python -m alembic upgrade head
+      && python data_pipeline.py --repeat-hourly --no-csv --lock-name ingestion-worker"
+    environment:
+      APP_ENV: staging
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:?Set BACKEND_CORS_ORIGINS}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:?Set ALLOWED_HOSTS}
+      API_AUTH_TOKEN: ${API_AUTH_TOKEN:?Set API_AUTH_TOKEN}
+      JOURNAL_AUTH_TOKEN: ${JOURNAL_AUTH_TOKEN:?Set JOURNAL_AUTH_TOKEN}
+      JOURNAL_ACCOUNT_KEY: ${JOURNAL_ACCOUNT_KEY:?Set JOURNAL_ACCOUNT_KEY}
+      MAX_REQUEST_BODY_BYTES: ${MAX_REQUEST_BODY_BYTES:-1048576}
+      DATA_FRESHNESS_MAX_AGE_HOURS: ${DATA_FRESHNESS_MAX_AGE_HOURS:-24}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      MODEL_ARTIFACT_DIR: ${MODEL_ARTIFACT_DIR:-/app/model_artifacts}
+      REQUIRE_APPROVED_MODEL_ARTIFACT: ${REQUIRE_APPROVED_MODEL_ARTIFACT:-true}
+      MONITORING_DRIFT_WARNING_THRESHOLD: ${MONITORING_DRIFT_WARNING_THRESHOLD:-0.35}
+      MONITORING_DRIFT_CRITICAL_THRESHOLD: ${MONITORING_DRIFT_CRITICAL_THRESHOLD:-0.75}
+      MONITORING_SLOW_REQUEST_MS: ${MONITORING_SLOW_REQUEST_MS:-1000}
+      MONITORING_MAX_ERROR_RATE: ${MONITORING_MAX_ERROR_RATE:-0.05}
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-horse-predictor-api}
+      RESPONSIBLE_GAMBLING_URL: ${RESPONSIBLE_GAMBLING_URL:-}
+      PRIVACY_POLICY_URL: ${PRIVACY_POLICY_URL:-}
+      TERMS_OF_USE_URL: ${TERMS_OF_USE_URL:-}
+      DATA_LICENSE_REFERENCE: ${DATA_LICENSE_REFERENCE:-}
+      HORSE_API_PROVIDER: ${HORSE_API_PROVIDER:-sample}
+      HORSE_API_BASE_URL: ${HORSE_API_BASE_URL:-}
+      HORSE_API_KEY: ${HORSE_API_KEY:-}
+      HORSE_API_TIMEOUT_SECONDS: ${HORSE_API_TIMEOUT_SECONDS:-30}
+      HORSE_API_RETRY_ATTEMPTS: ${HORSE_API_RETRY_ATTEMPTS:-3}
+      HORSE_API_RETRY_BACKOFF_SECONDS: ${HORSE_API_RETRY_BACKOFF_SECONDS:-1.5}
+      HORSE_API_MIN_REQUEST_INTERVAL_SECONDS: ${HORSE_API_MIN_REQUEST_INTERVAL_SECONDS:-0}
+      HORSE_API_MAX_PAGES: ${HORSE_API_MAX_PAGES:-5}
+      RACING_API_USERNAME: ${RACING_API_USERNAME:-}
+      RACING_API_PASSWORD: ${RACING_API_PASSWORD:-}
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.staging
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:?Set VITE_API_BASE_URL}
+    ports:
+      - "8080:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  model-artifacts:

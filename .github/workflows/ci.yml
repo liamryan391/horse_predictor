@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - development
+      - main
+  push:
+    branches:
+      - development
+      - main
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: sqlite:///horse_predictor_ci.db
+      MODEL_ARTIFACT_DIR: model_artifacts
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+
+      - name: Compile Python modules
+        run: >-
+          python -m py_compile
+          data_pipeline.py
+          horse_racing_app.py
+          api.py
+          api_contracts.py
+          racing_storage.py
+          settings.py
+          schema.py
+          monitoring.py
+          observability.py
+          prediction_model.py
+          scripts/production-readiness-check.py
+          scripts/provider-depth-check.py
+          scripts/release-record.py
+          scripts/visual-smoke-check.py
+
+      - name: Run Alembic migrations
+        run: python -m alembic upgrade head
+
+      - name: Run backend test suite
+        run: python -m unittest discover -s tests
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Run frontend tests
+        run: npm test --prefix frontend
+
+      - name: Build frontend
+        run: npm run build --prefix frontend
+
+  config:
+    name: Scripts And Docker Config
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check shell scripts
+        run: |
+          bash -n scripts/start-dev.sh
+          bash -n scripts/staging-release.sh
+          bash -n scripts/run-ingestion-worker.sh
+
+      - name: Validate Docker Compose
+        run: |
+          docker compose config --quiet
+          docker compose --env-file .env.staging.example -f docker-compose.staging.yml config --quiet
+
+      - name: Check staged diff hygiene
+        run: |
+          if [ -n "${{ github.base_ref }}" ]; then
+            git diff --check "origin/${{ github.base_ref }}...HEAD"
+          else
+            git diff-tree --check --no-commit-id --root -r HEAD
+          fi
