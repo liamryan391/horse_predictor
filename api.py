@@ -57,6 +57,7 @@ from api_contracts import (
     PredictionRunResponse,
     PredictionRunsResponse,
     PredictionsResponse,
+    RaceDayResponse,
     ProductSafeguardsResponse,
     RaceCardResponse,
     RacesResponse,
@@ -498,6 +499,150 @@ def build_race_summaries(current_df: pd.DataFrame) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows).sort_values(["race_date", "track", "distance"], kind="mergesort") if rows else pd.DataFrame(columns=["race_date", "track", "distance", "surface", "runners", "market_favorite", "average_odds"])
+
+
+def first_existing_value(frame: pd.DataFrame, *columns: str) -> Any:
+    for column in columns:
+        if column not in frame.columns:
+            continue
+        values = frame[column].dropna()
+        if not values.empty:
+            return values.iloc[0]
+    return None
+
+
+def parse_optional_date(value: Any) -> date | None:
+    if value is None:
+        return None
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        return None
+    return parsed.date()
+
+
+def parse_off_datetime(race_date_value: Any, off_time_value: Any) -> datetime | None:
+    race_day = parse_optional_date(race_date_value)
+    if race_day is None or off_time_value is None:
+        return None
+    text = str(off_time_value).strip()
+    if not text:
+        return None
+    for fmt in ("%H:%M:%S", "%H:%M"):
+        try:
+            parsed_time = datetime.strptime(text, fmt).time()
+            return datetime.combine(race_day, parsed_time, tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    parsed = pd.to_datetime(text, errors="coerce")
+    if not pd.isna(parsed):
+        if parsed.tzinfo is not None:
+            return parsed.to_pydatetime().astimezone(timezone.utc)
+        if parsed.date() == datetime.now().date():
+            return datetime.combine(race_day, parsed.time(), tzinfo=timezone.utc)
+        return parsed.to_pydatetime().replace(tzinfo=timezone.utc)
+    return None
+
+
+def race_day_status(race_date_value: Any, off_time_value: Any, as_of: datetime, today_value: date) -> tuple[str, str, float | None]:
+    race_day = parse_optional_date(race_date_value)
+    if race_day is None:
+        return "unknown", "Date unknown", None
+    off_at = parse_off_datetime(race_date_value, off_time_value)
+    if race_day < today_value:
+        return "stale", "Past card", None
+    if race_day > today_value:
+        return "upcoming", "Upcoming", None
+    if off_at is None:
+        return "race-day", "Today", None
+    minutes = (off_at - as_of).total_seconds() / 60
+    if minutes < -20:
+        return "complete", "Likely complete", minutes
+    if -10 <= minutes <= 20:
+        return "live", "Live window", minutes
+    return "race-day", "Today", minutes
+
+
+def dominant_text(frame: pd.DataFrame, column: str) -> str | None:
+    if column not in frame.columns:
+        return None
+    values = frame[column].dropna().astype(str)
+    if values.empty:
+        return None
+    counts = values.value_counts()
+    return str(counts.index[0]) if not counts.empty else None
+
+
+def build_race_day_payload(scored_df: pd.DataFrame, limit: int = 500, offset: int = 0) -> dict[str, Any]:
+    as_of = datetime.now(timezone.utc).replace(microsecond=0)
+    today_value = as_of.date()
+    rows: list[dict[str, Any]] = []
+    if not scored_df.empty:
+        for key, race_df in scored_df.groupby(["race_date", "track", "distance", "surface"], dropna=False):
+            odds = pd.to_numeric(race_df["odds"], errors="coerce") if "odds" in race_df.columns else pd.Series(dtype=float)
+            favorite = None if odds.dropna().empty else race_df.loc[odds.idxmin(), "horse"]
+            ranked = sort_frame(race_df, "suggested_rank", "asc") if "suggested_rank" in race_df.columns else race_df
+            top = ranked.iloc[0] if not ranked.empty else {}
+            off_time = first_existing_value(race_df, "off_time", "offTime", "race_time", "raceTime")
+            status_value, status_label, minutes_to_post = race_day_status(key[0], off_time, as_of, today_value)
+            last_ingested = first_existing_value(race_df, "ingested_at", "ingestedAt")
+            ingested_at = pd.to_datetime(last_ingested, utc=True, errors="coerce") if last_ingested is not None else None
+            rows.append(
+                {
+                    "raceDate": clean_value(key[0]),
+                    "track": clean_value(key[1]),
+                    "distance": clean_value(key[2]),
+                    "surface": clean_value(key[3]),
+                    "offTime": clean_value(off_time),
+                    "raceStatus": status_value,
+                    "statusLabel": status_label,
+                    "minutesToPost": clean_value(minutes_to_post),
+                    "runners": int(race_df["horse"].count()) if "horse" in race_df.columns else int(len(race_df)),
+                    "topRunner": clean_value(top.get("horse")) if hasattr(top, "get") else None,
+                    "topWinProbability": clean_value(top.get("win_probability")) if hasattr(top, "get") else None,
+                    "topValueEdge": clean_value(top.get("value_edge")) if hasattr(top, "get") else None,
+                    "marketFavorite": clean_value(favorite),
+                    "averageOdds": clean_value(float(odds.mean()) if not odds.dropna().empty else None),
+                    "provider": dominant_text(race_df, "source"),
+                    "lastIngestedAt": clean_value(last_ingested),
+                    "dataAgeHours": clean_value((as_of - ingested_at.to_pydatetime()).total_seconds() / 3600 if ingested_at is not None and not pd.isna(ingested_at) else None),
+                }
+            )
+
+    def sort_key(row: dict[str, Any]) -> tuple[str, int, str, float]:
+        status_order = {"live": 0, "next": 1, "race-day": 2, "upcoming": 3, "complete": 4, "stale": 5, "unknown": 6}
+        return (
+            str(row.get("raceDate") or ""),
+            status_order.get(str(row.get("raceStatus")), 9),
+            str(row.get("track") or ""),
+            float(row.get("distance") or math.inf),
+        )
+
+    rows = sorted(rows, key=sort_key)
+    next_index = next(
+        (
+            index
+            for index, row in enumerate(rows)
+            if row["raceStatus"] in {"live", "race-day", "upcoming"}
+        ),
+        None,
+    )
+    if next_index is not None:
+        if rows[next_index]["raceStatus"] != "live":
+            rows[next_index]["raceStatus"] = "next"
+            rows[next_index]["statusLabel"] = "Next race"
+        next_race = rows[next_index]
+    else:
+        next_race = None
+
+    page_rows, meta = page_frame(pd.DataFrame(rows), limit, offset) if rows else (pd.DataFrame(), {"limit": limit, "offset": offset, "returned": 0, "total": 0})
+    return {
+        "asOf": as_of.isoformat(),
+        "today": today_value.isoformat(),
+        "timezone": "UTC",
+        "nextRace": next_race,
+        "races": records(page_rows),
+        "page": build_page(meta),
+    }
 
 
 def build_scored_predictions(
@@ -1325,6 +1470,17 @@ def races(
     race_df = build_race_summaries(current_df)
     page_df, meta = page_frame(race_df, limit, offset)
     return {"requestId": request_id(), "races": records(page_df), "page": build_page(meta)}
+
+
+@router.get("/race-day", response_model=RaceDayResponse)
+def race_day(
+    race_date: Annotated[date | None, Query()] = None,
+    track: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict[str, Any]:
+    scored_df = build_scored_predictions(race_date=race_date, track=track)
+    return {"requestId": request_id(), **build_race_day_payload(scored_df, limit=limit, offset=offset)}
 
 
 @router.get("/race-card", response_model=RaceCardResponse)

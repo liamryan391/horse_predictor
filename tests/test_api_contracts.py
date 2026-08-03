@@ -14,7 +14,7 @@ _TEMP_DIR = tempfile.TemporaryDirectory()
 os.environ["DATABASE_URL"] = f"sqlite:///{(Path(_TEMP_DIR.name) / 'api_contracts.db').as_posix()}"
 os.environ["MODEL_ARTIFACT_DIR"] = str(Path(_TEMP_DIR.name) / "artifacts")
 
-from api import SETTINGS, access_from_request, admin_accounts, admin_audit_log, admin_governance, admin_session, approve_model, auth_session, bet_journal, broker_status, create_bet, delete_bet, capture_model_evaluation, capture_prediction_run, data_quality as api_data_quality, entity_profile, health, meetings, model_registry, model_status, monitoring as api_monitoring, normalize_request_id, normalized_race_entries, normalized_status, prediction_run_detail, prediction_runs, predictions, race_card, ready, safeguards, summary, supersede_model, update_bet, upsert_operator_account
+from api import SETTINGS, access_from_request, admin_accounts, admin_audit_log, admin_governance, admin_session, approve_model, auth_session, bet_journal, broker_status, create_bet, delete_bet, capture_model_evaluation, capture_prediction_run, data_quality as api_data_quality, entity_profile, health, meetings, model_registry, model_status, monitoring as api_monitoring, normalize_request_id, normalized_race_entries, normalized_status, prediction_run_detail, prediction_runs, predictions, race_card, race_day, ready, safeguards, summary, supersede_model, update_bet, upsert_operator_account
 from api_contracts import (
     AccountSessionResponse,
     AdminAuditResponse,
@@ -41,6 +41,7 @@ from api_contracts import (
     OperatorAccountUpsertRequest,
     ProductSafeguardsResponse,
     RaceCardResponse,
+    RaceDayResponse,
     ReadinessResponse,
     SummaryResponse,
 )
@@ -271,6 +272,17 @@ class APIContractTests(unittest.TestCase):
 
         self.assertEqual(1, response.page.total)
         self.assertEqual("Golden Arrow", response.raceCard[0].horse)
+
+    def test_race_day_endpoint_exposes_operational_status(self) -> None:
+        response = RaceDayResponse(**race_day(limit=10))
+
+        self.assertGreaterEqual(response.page.total, 1)
+        self.assertTrue(response.races)
+        self.assertIn(
+            response.races[0].raceStatus,
+            {"stale", "race-day", "upcoming", "next", "live", "complete", "unknown"},
+        )
+        self.assertIsNotNone(response.races[0].statusLabel)
 
     def test_meetings_and_entity_profile_endpoints_return_core_shapes(self) -> None:
         meeting_response = meetings()

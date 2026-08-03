@@ -34,6 +34,7 @@ import {
 } from "./journal";
 import {
   buildRaceGroups,
+  raceGroupKey,
   raceKey,
   runnerSignals,
   sortRaceRunners,
@@ -114,6 +115,36 @@ type Meeting = {
   runners: number;
   first_distance: number | null;
   last_distance: number | null;
+};
+
+type RaceDayRace = {
+  raceDate: string | null;
+  track: string | null;
+  distance: number | null;
+  surface: string | null;
+  offTime: string | null;
+  raceStatus: string;
+  statusLabel: string;
+  minutesToPost: number | null;
+  runners: number;
+  topRunner: string | null;
+  topWinProbability: number | null;
+  topValueEdge: number | null;
+  marketFavorite: string | null;
+  averageOdds: number | null;
+  provider: string | null;
+  lastIngestedAt: string | null;
+  dataAgeHours: number | null;
+};
+
+type RaceDay = {
+  requestId: string;
+  asOf: string;
+  today: string;
+  timezone: string;
+  nextRace: RaceDayRace | null;
+  races: RaceDayRace[];
+  page: PageMeta;
 };
 
 type ModelStatus = {
@@ -497,11 +528,50 @@ function formatFreshness(value: DataFreshness | null | undefined) {
   return value.status;
 }
 
+function formatOffTime(value: string | null | undefined) {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime())
+    ? value
+    : parsed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatMinutesToPost(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) return "-";
+  if (value >= 60) return `${formatNumber(value / 60, 1)}h`;
+  if (value >= 0) return `${Math.round(value)}m`;
+  if (value > -60) return `Off ${Math.abs(Math.round(value))}m ago`;
+  return `${formatNumber(Math.abs(value) / 60, 1)}h ago`;
+}
+
+function formatPostWindow(offTime: string | null | undefined, minutesToPost: number | null | undefined) {
+  const timeLabel = formatOffTime(offTime);
+  const windowLabel = formatMinutesToPost(minutesToPost);
+  if (timeLabel === "-" && windowLabel === "-") return "-";
+  if (timeLabel === "-") return windowLabel;
+  if (windowLabel === "-") return timeLabel;
+  return `${timeLabel} / ${windowLabel}`;
+}
+
+function formatDataAge(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) return "-";
+  if (value < 1) return `${Math.max(1, Math.round(value * 60))}m`;
+  return `${formatNumber(value, 1)}h`;
+}
+
 function statusTone(status: string | null | undefined) {
   if (!status) return "superseded";
   if (["ok", "fresh", "success", "approved"].includes(status)) return "approved";
   if (["warning", "stale", "candidate", "degraded", "unknown"].includes(status)) return "candidate";
   if (["critical", "blocked", "failed", "missing", "error"].includes(status)) return "critical";
+  return "superseded";
+}
+
+function raceStatusTone(status: string | null | undefined) {
+  if (status === "live") return "live";
+  if (["next", "race-day", "upcoming"].includes(status ?? "")) return "candidate";
+  if (["stale", "complete"].includes(status ?? "")) return "superseded";
+  if (status === "unknown") return "warning";
   return "superseded";
 }
 
@@ -652,6 +722,7 @@ function App() {
 function Workspace() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
+  const [raceDay, setRaceDay] = useState<RaceDay | null>(null);
   const [raceCard, setRaceCard] = useState<RaceRunner[]>([]);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [model, setModel] = useState<ModelStatus | null>(null);
@@ -680,6 +751,7 @@ function Workspace() {
         predictionRunsResult,
         trendResult,
         meetingResult,
+        raceDayResult,
         raceCardResult,
         qualityResult,
         monitoringResult
@@ -692,6 +764,7 @@ function Workspace() {
           apiGet<{ runs: PredictionRun[]; page: PageMeta }>("/prediction-runs?limit=5"),
           apiGet<Trends>("/trends"),
           apiGet<{ meetings: Meeting[]; page: PageMeta }>("/meetings?limit=200"),
+          apiGet<RaceDay>("/race-day?limit=500"),
           apiGet<{ raceCard: RaceRunner[]; page: PageMeta }>("/race-card?limit=500"),
           apiGet<DataQuality>("/data-quality"),
           apiGet<Monitoring>("/monitoring")
@@ -703,6 +776,7 @@ function Workspace() {
       setPredictionRuns(predictionRunsResult.runs);
       setTrends(trendResult);
       setMeetings(meetingResult.meetings);
+      setRaceDay(raceDayResult);
       setRaceCard(raceCardResult.raceCard);
       setQuality(qualityResult);
       setMonitoring(monitoringResult);
@@ -752,7 +826,26 @@ function Workspace() {
     return meetings.filter((item) => track === "All tracks" || item.track === track);
   }, [meetings, track]);
 
-  const raceGroups = useMemo(() => buildRaceGroups(filteredPredictions), [filteredPredictions]);
+  const raceGroups = useMemo(() => {
+    const raceDayById = new Map(
+      (raceDay?.races ?? []).map((race) => [raceGroupKey(race.raceDate, race.track, race.distance), race])
+    );
+    return buildRaceGroups(filteredPredictions).map((group) => {
+      const operationalRace = raceDayById.get(group.id);
+      return {
+        ...group,
+        offTime: operationalRace?.offTime ?? group.offTime,
+        raceStatus: operationalRace?.raceStatus ?? group.raceStatus,
+        statusLabel: operationalRace?.statusLabel ?? group.statusLabel,
+        minutesToPost: operationalRace?.minutesToPost ?? group.minutesToPost,
+        provider: operationalRace?.provider ?? group.provider,
+        lastIngestedAt: operationalRace?.lastIngestedAt ?? group.lastIngestedAt,
+        dataAgeHours: operationalRace?.dataAgeHours ?? group.dataAgeHours,
+        marketFavorite: operationalRace?.marketFavorite ?? group.marketFavorite,
+        topValueEdge: operationalRace?.topValueEdge ?? group.topValueEdge
+      };
+    });
+  }, [filteredPredictions, raceDay]);
 
   useEffect(() => {
     if (raceGroups.length === 0) {
@@ -848,15 +941,18 @@ function Workspace() {
           {view !== "race-centre" && <RunnerComparison first={topRunner} second={secondRunner} />}
           {view === "rankings" && <PredictionTable rows={filteredPredictions} loading={loading} />}
           {view === "race-centre" && (
-            <RaceCentrePanel
-              groups={raceGroups}
-              rows={filteredPredictions}
-              selectedRaceId={selectedRaceId}
-              onSelectRace={setSelectedRaceId}
-              sort={raceSort}
-              onSortChange={setRaceSort}
-              loading={loading}
-            />
+            <>
+              <RaceDayOverview raceDay={raceDay} groups={raceGroups} loading={loading} />
+              <RaceCentrePanel
+                groups={raceGroups}
+                rows={filteredPredictions}
+                selectedRaceId={selectedRaceId}
+                onSelectRace={setSelectedRaceId}
+                sort={raceSort}
+                onSortChange={setRaceSort}
+                loading={loading}
+              />
+            </>
           )}
           {view === "race-card" && <RaceCardTable rows={filteredRaceCard} loading={loading} />}
           {view === "evaluation" && model?.evaluation && (
@@ -961,6 +1057,92 @@ function formatDistance(value: number | null | undefined) {
   return `${formatNumber(value, 0)}y`;
 }
 
+function RaceDayOverview({
+  raceDay,
+  groups,
+  loading
+}: {
+  raceDay: RaceDay | null;
+  groups: RaceCentreGroup[];
+  loading: boolean;
+}) {
+  const nextRace =
+    groups.find((race) => race.raceStatus === "live") ??
+    groups.find((race) => race.raceStatus === "next") ??
+    groups.find((race) => ["race-day", "upcoming"].includes(race.raceStatus ?? "")) ??
+    null;
+  const statusCounts = ["live", "next", "race-day", "upcoming", "complete", "stale"]
+    .map((status) => ({
+      status,
+      count: groups.filter((race) => race.raceStatus === status).length
+    }))
+    .filter((item) => item.count > 0);
+
+  if (loading) {
+    return (
+      <section className="race-day-panel">
+        <div className="race-day-header skeleton" />
+        <div className="race-day-grid">
+          {[0, 1, 2, 3].map((item) => (
+            <div className="race-day-card skeleton" key={item} />
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="race-day-panel">
+      <div className="race-day-header">
+        <div className="evaluation-header">
+          <Flag size={20} />
+          <div>
+            <h2>Race-Day Board</h2>
+            <span>{raceDay ? `As of ${formatDateTime(raceDay.asOf)} ${raceDay.timezone}` : "No race-day snapshot"}</span>
+          </div>
+        </div>
+        <span className={`race-state ${raceStatusTone(nextRace?.raceStatus)}`}>
+          {nextRace?.statusLabel ?? "No active card"}
+        </span>
+      </div>
+
+      <div className="race-day-grid">
+        <article className="race-day-card">
+          <span>Next race</span>
+          <strong>{nextRace ? `${nextRace.track ?? "-"} ${formatDistance(nextRace.distance)}` : "-"}</strong>
+          <small>{nextRace ? `${formatDate(nextRace.raceDate)} / ${nextRace.runners} runners` : "No visible race"}</small>
+        </article>
+        <article className="race-day-card">
+          <span>Post window</span>
+          <strong>{formatPostWindow(nextRace?.offTime, nextRace?.minutesToPost)}</strong>
+          <small>{nextRace?.surface ?? nextRace?.raceType?.replace("_", " ") ?? "-"}</small>
+        </article>
+        <article className="race-day-card">
+          <span>Provider</span>
+          <strong>{nextRace?.provider ?? "-"}</strong>
+          <small>Data age {formatDataAge(nextRace?.dataAgeHours)}</small>
+        </article>
+        <article className="race-day-card">
+          <span>Top runner</span>
+          <strong>{nextRace?.topRunner ?? "-"}</strong>
+          <small>
+            {formatPercent(nextRace?.topWinProbability)} win / {formatPercent(nextRace?.topValueEdge)} edge
+          </small>
+        </article>
+      </div>
+
+      <div className="race-day-status-strip" aria-label="Race-day status counts">
+        {statusCounts.length === 0 && <span className="race-state superseded">No status rows</span>}
+        {statusCounts.map((item) => (
+          <span className={`race-state ${raceStatusTone(item.status)}`} key={item.status}>
+            {item.status.replace("-", " ")} {item.count}
+          </span>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function RaceCentrePanel({
   groups,
   rows,
@@ -1024,9 +1206,12 @@ function RaceCentrePanel({
             className={`race-list-item ${race.id === selectedRace?.id ? "active" : ""}`}
             onClick={() => onSelectRace(race.id)}
           >
-            <strong>{race.track ?? "-"}</strong>
+            <div className="race-list-top">
+              <strong>{race.track ?? "-"}</strong>
+              <span className={`race-state ${raceStatusTone(race.raceStatus)}`}>{race.statusLabel ?? "Card"}</span>
+            </div>
             <span>
-              {formatDate(race.raceDate)} / {formatDistance(race.distance)} / {race.runners} runners
+              {formatDate(race.raceDate)} / {formatDistance(race.distance)} / {formatPostWindow(race.offTime, race.minutesToPost)}
             </span>
             <small>{race.topRunner ? `${race.topRunner} ${formatPercent(race.topWinProbability)}` : "-"}</small>
           </button>
@@ -1041,9 +1226,14 @@ function RaceCentrePanel({
               <div className="evaluation-header">
                 <Flag size={20} />
                 <div>
-                  <h2>{selectedRace.track ?? "Race"}</h2>
+                  <div className="race-title-row">
+                    <h2>{selectedRace.track ?? "Race"}</h2>
+                    <span className={`race-state ${raceStatusTone(selectedRace.raceStatus)}`}>
+                      {selectedRace.statusLabel ?? "Card"}
+                    </span>
+                  </div>
                   <span>
-                    {formatDate(selectedRace.raceDate)} / {formatDistance(selectedRace.distance)} / {selectedRace.surface ?? "-"}
+                    {formatDate(selectedRace.raceDate)} / {formatDistance(selectedRace.distance)} / {selectedRace.surface ?? "-"} / {formatPostWindow(selectedRace.offTime, selectedRace.minutesToPost)}
                   </span>
                 </div>
               </div>
@@ -1062,6 +1252,10 @@ function RaceCentrePanel({
             <div className="race-summary-grid">
               <RaceSummaryMetric label="Runners" value={formatInteger(selectedRace.runners)} />
               <RaceSummaryMetric label="Avg odds" value={formatNumber(selectedRace.averageOdds)} />
+              <RaceSummaryMetric label="Market fav" value={selectedRace.marketFavorite ?? "-"} />
+              <RaceSummaryMetric label="Provider" value={selectedRace.provider ?? "-"} />
+              <RaceSummaryMetric label="Data age" value={formatDataAge(selectedRace.dataAgeHours)} />
+              <RaceSummaryMetric label="Last import" value={formatDateTime(selectedRace.lastIngestedAt)} />
               <RaceSummaryMetric label="Race type" value={selectedRace.raceType?.replace("_", " ") ?? "-"} />
               <RaceSummaryMetric label="Going" value={selectedRace.goingCategory?.replace("_", " ") ?? selectedRace.weather ?? "-"} />
               <RaceSummaryMetric label="Distance" value={selectedRace.distanceBucket ?? "-"} />

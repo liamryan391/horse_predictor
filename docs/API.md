@@ -21,6 +21,7 @@ Core endpoints:
 - `GET /api/v1/auth/session`
 - `GET /api/v1/meetings`
 - `GET /api/v1/races`
+- `GET /api/v1/race-day`
 - `GET /api/v1/race-card`
 - `GET /api/v1/predictions`
 - `GET /api/v1/prediction-runs`
@@ -201,6 +202,16 @@ The existing `/race-card` and `/predictions` endpoints still read the compatibil
 - `apiMetrics` exposes in-process request counts, status buckets, top paths, average latency, and recent request samples.
 
 See [MONITORING.md](MONITORING.md) for thresholds and readiness gates.
+
+## Race-Day Operations
+
+`GET /api/v1/race-day` returns race-level operational status built from the current scored race card. It supports `race_date`, `track`, `limit`, and `offset`, and returns:
+
+- `nextRace` for the next visible live, race-day, or upcoming race
+- `races[]` with status labels, off time when available, minutes to post, runner count, top model runner, market favorite, provider, last ingested time, and data age
+- stale or upcoming status when the race date is outside the current UTC race day
+
+Provider off-times, non-runner state, and odds freshness are included only when the selected provider supplies those fields. The endpoint keeps working with the current compatibility tables and can be upgraded to the normalized provider model later.
 
 ## Model Registry
 

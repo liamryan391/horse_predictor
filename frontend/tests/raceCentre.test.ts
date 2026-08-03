@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildRaceGroups, runnerSignals, sortRaceRunners, type RaceCentreRunner } from "../src/raceCentre.ts";
+import { buildRaceGroups, raceGroupKey, runnerSignals, sortRaceRunners, type RaceCentreRunner } from "../src/raceCentre.ts";
 
 test("buildRaceGroups creates race summaries with top ranked runner", () => {
   const groups = buildRaceGroups([
@@ -16,6 +16,9 @@ test("buildRaceGroups creates race summaries with top ranked runner", () => {
   assert.equal(groups[1].runners, 2);
   assert.equal(groups[1].topRunner, "Silver Line");
   assert.equal(groups[1].averageOdds, 4.3);
+  assert.equal(groups[1].raceStatus, null);
+  assert.equal(groups[1].provider, null);
+  assert.equal(raceGroupKey(groups[1].raceDate, groups[1].track, groups[1].distance), groups[1].id);
 });
 
 test("sortRaceRunners supports race-centre sort modes", () => {

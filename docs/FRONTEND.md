@@ -21,6 +21,7 @@ The workspace combines:
 - runner search
 - meetings strip
 - race centre with selected-race detail
+- race-day board with next-race status, post window, provider provenance, and data age
 - race-card browser
 - prediction rankings
 - runner comparison
@@ -36,11 +37,12 @@ The frontend calls `/api/v1` endpoints by default.
 
 ## Race Centre
 
-Phase 14 adds a race-by-race operating view inside the workspace. It groups prediction rows by race, keeps the selected race visible, and supports runner sorting by model rank, value edge, market odds, draw, and speed rating.
+Phase 14 adds a race-by-race operating view inside the workspace. Phase 24 extends it with the `/api/v1/race-day` read model for next-race, live-window, upcoming, stale, provider, and data-age status. It groups prediction rows by race, keeps the selected race visible, and supports runner sorting by model rank, value edge, market odds, draw, and speed rating.
 
 The selected race shows:
 
-- race context: date, course, distance, race type, going, country, and average odds
+- race context: date, course, distance, race type, going, country, average odds, market favorite, provider, last import, and data age
+- operational state: next/live/upcoming/stale labels, off time, and time-to-race when available
 - in-race top runner comparison cards
 - runner-level rank, market odds, model odds, win probability, value edge, draw, jockey, trainer, and owner
 - bounded transparent signal labels such as model rank, value edge, market favourite, speed context, draw, going, and race type

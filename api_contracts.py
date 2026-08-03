@@ -268,6 +268,36 @@ class RacesResponse(BaseModel):
     page: PageMeta
 
 
+class RaceDayRace(BaseModel):
+    raceDate: str | None = None
+    track: str | None = None
+    distance: float | None = None
+    surface: str | None = None
+    offTime: str | None = None
+    raceStatus: str
+    statusLabel: str
+    minutesToPost: float | None = None
+    runners: int
+    topRunner: str | None = None
+    topWinProbability: float | None = None
+    topValueEdge: float | None = None
+    marketFavorite: str | None = None
+    averageOdds: float | None = None
+    provider: str | None = None
+    lastIngestedAt: str | None = None
+    dataAgeHours: float | None = None
+
+
+class RaceDayResponse(BaseModel):
+    requestId: str
+    asOf: str
+    today: str
+    timezone: str
+    nextRace: RaceDayRace | None = None
+    races: List[RaceDayRace]
+    page: PageMeta
+
+
 class TrendRow(BaseModel):
     jockey: str | None = None
     trainer: str | None = None

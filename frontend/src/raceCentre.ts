@@ -43,11 +43,28 @@ export type RaceCentreGroup = {
   runners: number;
   topRunner: string | null;
   topWinProbability: number | null;
+  topValueEdge: number | null;
+  marketFavorite: string | null;
   averageOdds: number | null;
+  offTime: string | null;
+  raceStatus: string | null;
+  statusLabel: string | null;
+  minutesToPost: number | null;
+  provider: string | null;
+  lastIngestedAt: string | null;
+  dataAgeHours: number | null;
 };
 
+export function raceGroupKey(
+  raceDate: string | null | undefined,
+  track: string | null | undefined,
+  distance: number | string | null | undefined
+): string {
+  return [raceDate ?? "unknown-date", track ?? "unknown-track", distance ?? "unknown-distance"].join("|");
+}
+
 export function raceKey(row: RaceCentreRunner): string {
-  return [row.race_date ?? "unknown-date", row.track ?? "unknown-track", row.distance ?? "unknown-distance"].join("|");
+  return raceGroupKey(row.race_date, row.track, row.distance);
 }
 
 export function buildRaceGroups(rows: RaceCentreRunner[]): RaceCentreGroup[] {
@@ -76,7 +93,16 @@ export function buildRaceGroups(rows: RaceCentreRunner[]): RaceCentreGroup[] {
         runners: runners.length,
         topRunner: sorted[0]?.horse ?? null,
         topWinProbability: sorted[0]?.win_probability ?? null,
-        averageOdds: odds.length ? odds.reduce((total, value) => total + value, 0) / odds.length : null
+        topValueEdge: sorted[0]?.value_edge ?? null,
+        marketFavorite: sorted.find((runner) => runner.odds_rank === 1)?.horse ?? null,
+        averageOdds: odds.length ? odds.reduce((total, value) => total + value, 0) / odds.length : null,
+        offTime: null,
+        raceStatus: null,
+        statusLabel: null,
+        minutesToPost: null,
+        provider: null,
+        lastIngestedAt: null,
+        dataAgeHours: null
       };
     })
     .sort((first, second) => {

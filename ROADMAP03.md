@@ -198,18 +198,21 @@ Goal: make the app useful when real race cards are changing during the day.
 
 ### 24.1 Next-To-Jump And Live Views
 
-- Add next race, live race, and recently completed race states when provider supports them.
-- Show off time, time-to-race, going changes, runner count, non-runner status, and odds freshness.
+- Current status: `/api/v1/race-day` returns race-level operational status from the scored current race card.
+- Current status: the endpoint identifies next/live/race-day/upcoming/complete/stale states, exposes off time and minutes-to-post when provider fields are present, and keeps provider/data-age provenance attached to each race.
+- Current status: the Race Centre now has a race-day board with next visible race, post window, provider, data age, top runner, and status counts.
+- Next: add true provider next-to-jump, non-runner, going-change, and odds-freshness fields once the selected provider supplies them.
 
 ### 24.2 Race Detail Improvements
 
-- Show provider provenance, last fetched time, field completeness, and model confidence.
-- Add runner profile panels for form, trainer/jockey signals, draw, going, and market context.
+- Current status: selected Race Centre detail shows status label, off-time window, market favorite, provider, last import, and data age beside race context.
+- Current status: race list items show compact status pills so stale or upcoming cards are visible before selection.
+- Next: add runner profile panels for form, trainer/jockey signals, draw, going, market context, and field completeness.
 
 ### 24.3 Operator Workflow
 
-- Add refresh controls that trigger provider import jobs safely.
-- Add import status and stale-data warnings beside each race.
+- Current status: race-level stale-data warnings are visible through `/api/v1/race-day` and the Race Centre status pills.
+- Next: add refresh controls that trigger provider import jobs safely.
 - Add watchlists for tracks, runners, jockeys, trainers, and user angles.
 
 ## Phase 25: Browser And End-To-End QA
@@ -278,4 +281,4 @@ Goal: make the product safe to share outside local development.
 
 ## Recommended Next Roadmap03 Step
 
-Phase 23 now has deployment guardrails for managed SQL configuration, secret/env validation, backup/restore rehearsal, restore safety, and staging acceptance inputs. Move next into Phase 24: Race-Day Operations UX, so the app becomes more useful while live race cards change through the day.
+Phase 24 now exposes a race-day operational read model and surfaces next-race, status, provider, import, and data-age context in the Race Centre. Move next into Phase 25: Browser And End-To-End QA, so visual and workflow checks become reliable enough to protect release candidates.
